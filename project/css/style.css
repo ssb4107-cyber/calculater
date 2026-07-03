@@ -1,0 +1,181 @@
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:Pretendard,sans-serif;
+}
+
+html,
+body{
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    background:#f5f6f8;
+}
+
+.layout{
+    display:flex;
+    width:100vw;
+    height:100vh;
+}
+
+/* ==========================
+   Sidebar
+========================== */
+
+.sidebar{
+    width:250px;
+    background:#1e293b;
+    color:white;
+    display:flex;
+    flex-direction:column;
+    flex-shrink:0;
+}
+
+.logo{
+    padding:30px 20px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+
+    display:flex;
+    gap:15px;
+    align-items:center;
+
+    font-size:30px;
+}
+
+.logo h2{
+    font-size:20px;
+    font-weight:700;
+}
+
+.logo span{
+    color:#94a3b8;
+    font-size:13px;
+}
+
+nav{
+    display:flex;
+    flex-direction:column;
+    padding:15px;
+    gap:8px;
+}
+
+.menu{
+
+    border:none;
+    background:none;
+
+    color:white;
+
+    padding:15px;
+
+    border-radius:12px;
+
+    text-align:left;
+
+    cursor:pointer;
+
+    font-size:16px;
+
+    transition:.2s;
+}
+
+.menu:hover{
+
+    background:#334155;
+
+}
+
+.menu.active{
+
+    background:#3b82f6;
+
+}
+
+/* ==========================
+   Main
+========================== */
+
+.content{
+
+    flex:1;
+
+    background:white;
+
+}
+
+#pageFrame{
+
+    width:100%;
+
+    height:100%;
+
+    border:none;
+
+    background:white;
+
+}
+
+#positionForm{
+
+    background:white;
+
+    padding:20px;
+
+    border:1px solid #ddd;
+
+    border-radius:10px;
+
+    margin-top:20px;
+
+}
+
+#positionForm input,
+#positionForm textarea{
+
+    width:100%;
+
+    padding:10px;
+
+}
+
+#savePositionBtn{
+
+    padding:12px 20px;
+
+    background:#2563eb;
+
+    color:white;
+
+    border:none;
+
+    border-radius:8px;
+
+    cursor:pointer;
+
+}
+
+.trade-item{
+
+    padding:8px 0;
+
+    border-bottom:1px solid #eee;
+
+    font-size:14px;
+
+}
+
+.position-card{
+
+    transition:.2s;
+
+}
+
+.position-card:hover{
+
+    transform:translateY(-2px);
+
+    box-shadow:0 8px 18px rgba(0,0,0,.12);
+
+}
