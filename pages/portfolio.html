@@ -208,6 +208,34 @@ textarea{
         <div id="stockInfo">
             종목을 선택했습니다.
         </div>
+        <div id="dashboard" class="dashboard">
+
+        <div class="dash-card">
+            <div>총 투자금</div>
+            <strong id="totalBuy">$0.00</strong>
+        </div>
+
+        <div class="dash-card">
+            <div>평가금액</div>
+            <strong id="totalValue">$0.00</strong>
+        </div>
+
+        <div class="dash-card">
+            <div>실현손익</div>
+            <strong id="realizedPnL">$0.00</strong>
+        </div>
+
+        <div class="dash-card">
+            <div>미실현손익</div>
+            <strong id="unrealizedPnL">$0.00</strong>
+        </div>
+
+        <div class="dash-card">
+            <div>총 수익률</div>
+            <strong id="totalRate">0.00%</strong>
+        </div>
+
+    </div>
 
         <hr style="margin:25px 0;">
 
@@ -263,6 +291,34 @@ textarea{
 
 </div>
 
+<div id="tradeForm" style="display:none;margin-top:20px;">
+
+    <h3>Trade</h3>
+
+    <label>매도가</label><br>
+    <input id="sellPrice" type="number" step="0.01">
+
+    <br><br>
+
+    <label>매도수량</label><br>
+    <input id="sellQty" type="number">
+
+    <br><br>
+
+    <button id="saveTradeBtn">
+
+        저장
+
+    </button>
+
+    <button id="cancelTradeBtn">
+
+        취소
+
+    </button>
+
+</div>
+
 </div>
 
         <div id="stockForm">
@@ -283,6 +339,8 @@ textarea{
                 <label>메모</label>
                 <textarea id="stockMemo" rows="4"></textarea>
             </div>
+
+            
 
             <button id="saveStockBtn">
                 저장
