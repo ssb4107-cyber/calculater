@@ -3,8 +3,13 @@ const PortfolioStorage = (() => {
 
     const defaultStocks = [
         {
+            id: "stock-PAAS",
+            displayName: "Pan American Silver",
             name: "Pan American Silver",
             symbol: "PAAS",
+            companyName: "Pan American Silver",
+            exchange: "NYSE",
+            connected: true,
             currentPrice: null,
             memo: "",
             positions: []
@@ -49,9 +54,18 @@ const PortfolioStorage = (() => {
     }
 
     function normalizeStock(stock) {
+        const symbol = (stock.symbol || "").toUpperCase();
+        const displayName = stock.displayName || stock.name || symbol || "새 종목";
+        const connected = stock.connected ?? Boolean(symbol);
+
         return {
-            name: stock.name || stock.symbol || "",
-            symbol: (stock.symbol || "").toUpperCase(),
+            id: stock.id || `stock-${symbol || Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            displayName,
+            name: stock.name || stock.companyName || symbol || "",
+            symbol,
+            companyName: stock.companyName || stock.name || symbol || "",
+            exchange: stock.exchange || "",
+            connected,
             currentPrice: stock.currentPrice === null
                 ? null
                 : Number(stock.currentPrice) || null,
@@ -67,7 +81,11 @@ const PortfolioStorage = (() => {
             const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
 
             if (Array.isArray(saved) && saved.length > 0) {
-                return saved.map(normalizeStock);
+                const normalizedStocks = saved.map(normalizeStock);
+
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedStocks));
+
+                return normalizedStocks;
             }
         } catch (error) {
             console.warn("Portfolio data could not be loaded.", error);

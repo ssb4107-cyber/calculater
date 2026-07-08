@@ -1,5 +1,8 @@
-const PriceProvider = (() => {
+﻿const PriceProvider = (() => {
     const CACHE_TTL_MS = 30 * 1000;
+    const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
+    const priceMemoryCache = new Map();
+    const searchMemoryCache = new Map();
 
     function getEffectiveApiKey() {
         const settings = SilverSettings.load();
@@ -10,26 +13,42 @@ const PriceProvider = (() => {
     }
 
     function getCachedPrice(symbol) {
-        const settings = SilverSettings.load();
+        const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+        const memoryCached = priceMemoryCache.get(normalizedSymbol);
 
-        return settings.priceCacheBySymbol?.[symbol] || null;
+        if (memoryCached) {
+            return memoryCached;
+        }
+
+        const settings = SilverSettings.load();
+        const localCached = settings.priceCacheBySymbol?.[normalizedSymbol] || null;
+
+        if (localCached) {
+            priceMemoryCache.set(normalizedSymbol, localCached);
+        }
+
+        return localCached;
     }
 
     function saveCachedPrice(symbol, price, updatedAt) {
+        const normalizedSymbol = String(symbol || "").trim().toUpperCase();
         const settings = SilverSettings.load();
+        const cacheItem = {
+            price,
+            updatedAt,
+            cachedAt: Date.now()
+        };
+
+        priceMemoryCache.set(normalizedSymbol, cacheItem);
 
         SilverSettings.update({
             priceUpdatedAtBySymbol: {
                 ...(settings.priceUpdatedAtBySymbol || {}),
-                [symbol]: updatedAt
+                [normalizedSymbol]: updatedAt
             },
             priceCacheBySymbol: {
                 ...(settings.priceCacheBySymbol || {}),
-                [symbol]: {
-                    price,
-                    updatedAt,
-                    cachedAt: Date.now()
-                }
+                [normalizedSymbol]: cacheItem
             }
         });
     }
@@ -95,8 +114,9 @@ const PriceProvider = (() => {
     }
 
     async function getCurrentPrice(symbol, options = {}) {
+        const normalizedSymbol = String(symbol || "").trim().toUpperCase();
         const apiKey = getEffectiveApiKey();
-        const cached = getCachedPrice(symbol);
+        const cached = getCachedPrice(normalizedSymbol);
         const force = options.force === true;
 
         if (
@@ -127,7 +147,7 @@ const PriceProvider = (() => {
 
         try {
             const response = await fetch(
-                `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(apiKey)}`
+                `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(normalizedSymbol)}&token=${encodeURIComponent(apiKey)}`
             );
 
             if (!response.ok) {
@@ -142,7 +162,7 @@ const PriceProvider = (() => {
             }
 
             const updatedAt = new Date().toISOString();
-            saveCachedPrice(symbol, price, updatedAt);
+            saveCachedPrice(normalizedSymbol, price, updatedAt);
 
             return {
                 ok: true,
@@ -165,17 +185,25 @@ const PriceProvider = (() => {
     }
 
     async function searchStocks(query) {
+        const normalizedQuery = query.trim().toUpperCase();
         const apiKey = getEffectiveApiKey();
+        const relatedResults = getRelatedSymbols(normalizedQuery);
+        const cachedSearch = searchMemoryCache.get(normalizedQuery);
 
-        const relatedResults = getRelatedSymbols(query);
+        if (
+            cachedSearch
+            && Date.now() - cachedSearch.cachedAt < SEARCH_CACHE_TTL_MS
+        ) {
+            return cachedSearch.results;
+        }
 
-        if (!apiKey || !query.trim()) {
+        if (!apiKey || !normalizedQuery) {
             return relatedResults;
         }
 
         try {
             const response = await fetch(
-                `https://finnhub.io/api/v1/search?q=${encodeURIComponent(query.trim())}&token=${encodeURIComponent(apiKey)}`
+                `https://finnhub.io/api/v1/search?q=${encodeURIComponent(normalizedQuery)}&token=${encodeURIComponent(apiKey)}`
             );
 
             if (!response.ok) {
@@ -193,7 +221,14 @@ const PriceProvider = (() => {
                     exchange: item.type || "미확인"
                 }));
 
-            return mergeSearchResults(apiResults, relatedResults);
+            const mergedResults = mergeSearchResults(apiResults, relatedResults);
+
+            searchMemoryCache.set(normalizedQuery, {
+                cachedAt: Date.now(),
+                results: mergedResults
+            });
+
+            return mergedResults;
         } catch (error) {
             console.warn("종목 검색에 실패했습니다.", error);
             return relatedResults;

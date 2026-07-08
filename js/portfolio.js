@@ -2,8 +2,11 @@ let selectedIndex = 0;
 let editingPositionId = null;
 let editingTrade = null;
 let draggedSymbol = null;
-let priceRefreshTimer = null;
-let contextMenuSymbol = null;
+let searchDebounceTimer = null;
+let contextMenuStockId = null;
+let settingsStockId = null;
+let pendingQuoteConnection = null;
+let connectionSearchDebounceTimer = null;
 
 let stocks = PortfolioStorage.loadStocks();
 
@@ -26,6 +29,7 @@ const dom = {
     priceApiStatus: document.getElementById("priceApiStatus"),
     updatePriceBtn: document.getElementById("updatePriceBtn"),
     stockContextMenu: document.getElementById("stockContextMenu"),
+    openStockSettingsMenuBtn: document.getElementById("openStockSettingsMenuBtn"),
     deleteStockMenuBtn: document.getElementById("deleteStockMenuBtn"),
 
     stockForm: document.getElementById("stockForm"),
@@ -36,9 +40,25 @@ const dom = {
     stockFilterInput: document.getElementById("stockFilterInput"),
     searchStockBtn: document.getElementById("searchStockBtn"),
     stockSearchResults: document.getElementById("stockSearchResults"),
+    manualStockDetails: document.getElementById("manualStockDetails"),
     stockName: document.getElementById("stockName"),
     stockSymbol: document.getElementById("stockSymbol"),
     stockMemo: document.getElementById("stockMemo"),
+
+    stockSettingsModal: document.getElementById("stockSettingsModal"),
+    stockDisplayName: document.getElementById("stockDisplayName"),
+    quoteConnectionState: document.getElementById("quoteConnectionState"),
+    quoteConnectionName: document.getElementById("quoteConnectionName"),
+    quoteConnectionExchange: document.getElementById("quoteConnectionExchange"),
+    openQuoteConnectBtn: document.getElementById("openQuoteConnectBtn"),
+    cancelStockSettingsBtn: document.getElementById("cancelStockSettingsBtn"),
+    saveStockSettingsBtn: document.getElementById("saveStockSettingsBtn"),
+
+    quoteConnectionModal: document.getElementById("quoteConnectionModal"),
+    quoteSearchInput: document.getElementById("quoteSearchInput"),
+    searchQuoteBtn: document.getElementById("searchQuoteBtn"),
+    quoteSearchResults: document.getElementById("quoteSearchResults"),
+    cancelQuoteConnectionBtn: document.getElementById("cancelQuoteConnectionBtn"),
 
     positionList: document.getElementById("positionList"),
     addPositionBtn: document.getElementById("addPositionBtn"),
@@ -88,6 +108,22 @@ function parseFormattedNumber(value) {
     const number = Number(String(value).replace(/,/g, ""));
 
     return Number.isFinite(number) ? number : 0;
+}
+
+function getStockDisplayName(stock) {
+    return stock?.displayName || stock?.name || stock?.symbol || "새 종목";
+}
+
+function getStockCompanyName(stock) {
+    return stock?.companyName || stock?.name || stock?.symbol || "";
+}
+
+function getStockKey(stock) {
+    return stock?.id || stock?.symbol || "";
+}
+
+function isPriceConnected(stock) {
+    return Boolean(stock?.connected && stock?.symbol);
 }
 
 function calculateStockAveragePrice(stock) {
@@ -194,6 +230,10 @@ function getStockBySymbol(symbol) {
     return stocks.find(stock => stock.symbol === symbol) || null;
 }
 
+function getStockById(id) {
+    return stocks.find(stock => getStockKey(stock) === id) || null;
+}
+
 function getPositionById(id) {
     const stock = getStock();
 
@@ -281,47 +321,52 @@ function getOrderedStocks() {
     return stocks
         .slice()
         .sort((a, b) => {
-            const aPinned = pinned.includes(a.symbol);
-            const bPinned = pinned.includes(b.symbol);
+            const aKey = getStockKey(a);
+            const bKey = getStockKey(b);
+            const aPinned = pinned.includes(aKey) || pinned.includes(a.symbol);
+            const bPinned = pinned.includes(bKey) || pinned.includes(b.symbol);
 
             if (aPinned !== bPinned) return aPinned ? -1 : 1;
 
-            const aOrder = order.indexOf(a.symbol);
-            const bOrder = order.indexOf(b.symbol);
+            const aOrder = order.includes(aKey) ? order.indexOf(aKey) : order.indexOf(a.symbol);
+            const bOrder = order.includes(bKey) ? order.indexOf(bKey) : order.indexOf(b.symbol);
 
             if (aOrder !== -1 || bOrder !== -1) {
                 return (aOrder === -1 ? 999 : aOrder)
                     - (bOrder === -1 ? 999 : bOrder);
             }
 
-            const aRecent = recent.indexOf(a.symbol);
-            const bRecent = recent.indexOf(b.symbol);
+            const aRecent = recent.includes(aKey) ? recent.indexOf(aKey) : recent.indexOf(a.symbol);
+            const bRecent = recent.includes(bKey) ? recent.indexOf(bKey) : recent.indexOf(b.symbol);
 
             if (aRecent !== -1 || bRecent !== -1) {
                 return (aRecent === -1 ? 999 : aRecent)
                     - (bRecent === -1 ? 999 : bRecent);
             }
 
-            return a.symbol.localeCompare(b.symbol);
+            return getStockDisplayName(a).localeCompare(getStockDisplayName(b));
         });
 }
 
-function rememberRecentSymbol(symbol) {
+function rememberRecentStock(stock) {
+    const key = getStockKey(stock);
     const settings = SilverSettings.load();
     const recentSymbols = [
-        symbol,
-        ...(settings.recentSymbols || []).filter(item => item !== symbol)
+        key,
+        ...(settings.recentSymbols || []).filter(item => item !== key && item !== stock.symbol)
     ].slice(0, 20);
 
     SilverSettings.update({ recentSymbols });
 }
 
-function togglePinnedSymbol(symbol) {
+function togglePinnedStock(stock) {
+    const key = getStockKey(stock);
     const settings = SilverSettings.load();
     const pinnedSymbols = settings.pinnedSymbols || [];
-    const nextPinned = pinnedSymbols.includes(symbol)
-        ? pinnedSymbols.filter(item => item !== symbol)
-        : [...pinnedSymbols, symbol];
+    const isPinned = pinnedSymbols.includes(key) || pinnedSymbols.includes(stock.symbol);
+    const nextPinned = isPinned
+        ? pinnedSymbols.filter(item => item !== key && item !== stock.symbol)
+        : [...pinnedSymbols, key];
 
     SilverSettings.update({ pinnedSymbols: nextPinned });
     renderStocks();
@@ -329,7 +374,7 @@ function togglePinnedSymbol(symbol) {
 
 function saveStockOrderFromDom() {
     const stockOrder = Array.from(dom.stockList.querySelectorAll(".stock-row"))
-        .map(item => item.dataset.symbol)
+        .map(item => item.dataset.stockId)
         .filter(Boolean);
 
     SilverSettings.update({ stockOrder });
@@ -343,8 +388,9 @@ function renderStocks() {
         .filter(stock => {
             if (!filterText) return true;
 
-            return stock.symbol.includes(filterText)
-                || (stock.name || "").toUpperCase().includes(filterText);
+            return getStockDisplayName(stock).toUpperCase().includes(filterText)
+                || getStockCompanyName(stock).toUpperCase().includes(filterText)
+                || (stock.symbol || "").includes(filterText);
         });
 
     dom.stockList.innerHTML = "";
@@ -352,7 +398,8 @@ function renderStocks() {
     orderedStocks.forEach((stock, orderIndex) => {
         if (
             orderIndex > 0
-            && pinned.includes(orderedStocks[orderIndex - 1].symbol)
+            && (pinned.includes(getStockKey(orderedStocks[orderIndex - 1])) || pinned.includes(orderedStocks[orderIndex - 1].symbol))
+            && !pinned.includes(getStockKey(stock))
             && !pinned.includes(stock.symbol)
         ) {
             const divider = document.createElement("div");
@@ -367,27 +414,27 @@ function renderStocks() {
 
         row.className = "stock-row";
         row.draggable = true;
-        row.dataset.symbol = stock.symbol;
+        row.dataset.stockId = getStockKey(stock);
 
         pinButton.type = "button";
         pinButton.className = "pin-stock-btn";
-        pinButton.classList.toggle("pinned", pinned.includes(stock.symbol));
-        pinButton.dataset.symbol = stock.symbol;
+        pinButton.classList.toggle("pinned", pinned.includes(getStockKey(stock)) || pinned.includes(stock.symbol));
+        pinButton.dataset.stockId = getStockKey(stock);
         pinButton.textContent = "📌";
         pinButton.setAttribute(
             "aria-label",
-            pinned.includes(stock.symbol) ? "종목 고정 해제" : "종목 고정"
+            pinned.includes(getStockKey(stock)) || pinned.includes(stock.symbol) ? "종목 고정 해제" : "종목 고정"
         );
 
         selectButton.type = "button";
         selectButton.className = "stock-card";
-        selectButton.dataset.symbol = stock.symbol;
+        selectButton.dataset.stockId = getStockKey(stock);
         selectButton.innerHTML = `
-            <strong>${escapeHtml(stock.symbol)}</strong>
-            <span>${escapeHtml(stock.name || stock.memo || "종목 정보 없음")}</span>
+            <strong>${escapeHtml(getStockDisplayName(stock))}</strong>
+            <span>${escapeHtml(isPriceConnected(stock) ? getStockCompanyName(stock) : "시세 연결 안됨")}</span>
         `;
 
-        if (stocks[selectedIndex]?.symbol === stock.symbol) {
+        if (getStockKey(stocks[selectedIndex]) === getStockKey(stock)) {
             selectButton.classList.add("active");
         }
 
@@ -574,6 +621,15 @@ function renderPositions() {
 }
 
 function renderPriceStatus(stock, status = null, message = null) {
+    if (stock && !isPriceConnected(stock)) {
+        dom.currentPriceText.textContent = "—";
+        dom.averagePriceText.textContent = `평단가: ${formatMoney(calculateStockAveragePrice(stock))}`;
+        dom.priceUpdatedAt.textContent = "최근 갱신: 없음";
+        dom.priceApiStatus.className = "api-status status-wait";
+        dom.priceApiStatus.textContent = "⚪ API 연결 안됨";
+        return;
+    }
+
     const settings = SilverSettings.load();
     const cached = stock ? PriceProvider.getCachedPrice(stock.symbol) : null;
     const failureCount = stock ? getApiFailureCount(stock.symbol) : 0;
@@ -588,7 +644,7 @@ function renderPriceStatus(stock, status = null, message = null) {
     const nextMessage = message
         || (failureCount >= 2 ? "🔴 연결 끊김" : failureCount === 1 ? "🟡 연결 불안정" : "🟢 정상");
 
-    dom.currentPriceText.textContent = formatMoney(stock?.currentPrice || 0);
+    dom.currentPriceText.textContent = stock ? formatMoney(stock.currentPrice || 0) : "$0";
     dom.averagePriceText.textContent = `평단가: ${formatMoney(calculateStockAveragePrice(stock))}`;
     dom.priceUpdatedAt.textContent = `최근 갱신: ${updatedAt}`;
     dom.priceApiStatus.className = "api-status";
@@ -610,9 +666,11 @@ function renderStockDetail() {
         return;
     }
 
-    dom.stockTitle.textContent = stock.symbol;
-    dom.stockDescription.textContent = stock.name || stock.memo || "종목 메모가 없습니다.";
-    dom.currentPrice.value = stock.currentPrice ?? "";
+    dom.stockTitle.textContent = getStockDisplayName(stock);
+    dom.stockDescription.textContent = isPriceConnected(stock)
+        ? getStockCompanyName(stock)
+        : "시세 연결이 필요합니다.";
+    dom.currentPrice.value = isPriceConnected(stock) ? stock.currentPrice ?? "" : "";
     renderPriceStatus(stock);
 }
 
@@ -633,7 +691,12 @@ async function updateCurrentPrice(options = {}) {
     const stock = getStock();
     const silent = options.silent === true;
 
-    if (!stock) return;
+    if (!stock || !isPriceConnected(stock)) {
+        if (stock && !silent) {
+            renderPriceStatus(stock);
+        }
+        return;
+    }
 
     dom.updatePriceBtn.disabled = true;
     dom.updatePriceBtn.textContent = "조회 중";
@@ -669,21 +732,16 @@ async function updateCurrentPrice(options = {}) {
 }
 
 function schedulePriceRefresh() {
-    const settings = SilverSettings.load();
-    const intervalMinutes = Number(settings.apiRefreshIntervalMinutes) || 5;
+    RefreshManager.start({
+        refresh: () => updateCurrentPrice({ silent: true }),
+        getIntervalMs: () => {
+            const settings = SilverSettings.load();
+            const intervalMinutes = Number(settings.apiRefreshIntervalMinutes) || 5;
 
-    if (priceRefreshTimer) {
-        clearInterval(priceRefreshTimer);
-    }
-
-    if (!PriceProvider.getEffectiveApiKey()) {
-        return;
-    }
-
-    updateCurrentPrice({ silent: true });
-    priceRefreshTimer = setInterval(() => {
-        updateCurrentPrice({ silent: true });
-    }, intervalMinutes * 60 * 1000);
+            return intervalMinutes * 60 * 1000;
+        },
+        isEnabled: () => Boolean(PriceProvider.getEffectiveApiKey() && isPriceConnected(getStock()))
+    });
 }
 
 function openAddPositionModal() {
@@ -792,32 +850,175 @@ function deletePosition(positionId) {
     refreshUI();
 }
 
-function showStockContextMenu(symbol, x, y) {
-    contextMenuSymbol = symbol;
+function showStockContextMenu(stockId, x, y) {
+    contextMenuStockId = stockId;
     dom.stockContextMenu.style.left = `${x}px`;
     dom.stockContextMenu.style.top = `${y}px`;
     dom.stockContextMenu.hidden = false;
 }
 
 function hideStockContextMenu() {
-    contextMenuSymbol = null;
+    contextMenuStockId = null;
     dom.stockContextMenu.hidden = true;
 }
 
-function deleteStock(symbol) {
-    const stock = getStockBySymbol(symbol);
+function deleteStock(stockId) {
+    const stock = getStockById(stockId);
 
     if (!stock) return;
 
-    if (!confirm(`${stock.symbol} 종목을 삭제하시겠습니까? 해당 종목의 포지션과 거래내역도 함께 삭제됩니다.`)) {
+    if (!confirm(`${getStockDisplayName(stock)} 종목을 삭제하시겠습니까? 해당 종목의 포지션과 거래내역도 함께 삭제됩니다.`)) {
         return;
     }
 
-    stocks = stocks.filter(item => item.symbol !== symbol);
+    stocks = stocks.filter(item => getStockKey(item) !== stockId);
     selectedIndex = Math.max(0, Math.min(selectedIndex, stocks.length - 1));
     saveStocks();
     hideStockContextMenu();
     refreshUI();
+}
+
+function renderStockSettingsConnection(stock, quoteConnection = null) {
+    const connection = quoteConnection || (
+        isPriceConnected(stock)
+            ? {
+                symbol: stock.symbol,
+                companyName: getStockCompanyName(stock),
+                exchange: stock.exchange || ""
+            }
+            : null
+    );
+
+    if (!connection) {
+        dom.quoteConnectionState.textContent = "⚪ 연결되지 않음";
+        dom.quoteConnectionName.textContent = "";
+        dom.quoteConnectionExchange.textContent = "";
+        return;
+    }
+
+    dom.quoteConnectionState.textContent = "🟢 연결됨";
+    dom.quoteConnectionName.textContent = connection.companyName;
+    dom.quoteConnectionExchange.textContent = connection.exchange || "";
+}
+
+function openStockSettingsModal(stock) {
+    settingsStockId = getStockKey(stock);
+    pendingQuoteConnection = null;
+    dom.stockDisplayName.value = getStockDisplayName(stock);
+    renderStockSettingsConnection(stock);
+    openModal(dom.stockSettingsModal);
+    dom.stockDisplayName.focus();
+    dom.stockDisplayName.select();
+}
+
+function closeStockSettingsModal() {
+    settingsStockId = null;
+    pendingQuoteConnection = null;
+    closeModal(dom.stockSettingsModal);
+}
+
+function saveStockSettings() {
+    const stock = getStockById(settingsStockId);
+    const displayName = dom.stockDisplayName.value.trim();
+
+    if (!stock) return;
+
+    if (!displayName) {
+        alert("표시 이름을 입력해 주세요.");
+        return;
+    }
+
+    stock.displayName = displayName;
+
+    if (pendingQuoteConnection) {
+        const symbolChanged = stock.symbol !== pendingQuoteConnection.symbol;
+
+        stock.symbol = pendingQuoteConnection.symbol;
+        stock.companyName = pendingQuoteConnection.companyName;
+        stock.name = pendingQuoteConnection.companyName;
+        stock.exchange = pendingQuoteConnection.exchange;
+        stock.connected = true;
+
+        if (symbolChanged) {
+            stock.currentPrice = null;
+        }
+    }
+
+    saveStocks();
+    closeStockSettingsModal();
+    refreshUI();
+}
+
+function openQuoteConnectionModal() {
+    if (!getStockById(settingsStockId)) return;
+
+    dom.quoteSearchInput.value = "";
+    dom.quoteSearchResults.innerHTML = "";
+    openModal(dom.quoteConnectionModal);
+    dom.quoteSearchInput.focus();
+}
+
+function closeQuoteConnectionModal() {
+    if (connectionSearchDebounceTimer) {
+        clearTimeout(connectionSearchDebounceTimer);
+        connectionSearchDebounceTimer = null;
+    }
+
+    closeModal(dom.quoteConnectionModal);
+}
+
+async function searchQuoteConnections() {
+    const query = dom.quoteSearchInput.value.trim();
+
+    if (!query) {
+        dom.quoteSearchResults.innerHTML = "";
+        return;
+    }
+
+    dom.quoteSearchResults.innerHTML = `<div class="empty-state small">검색 중입니다.</div>`;
+
+    const results = await PriceProvider.searchStocks(query);
+
+    if (results.length === 0) {
+        dom.quoteSearchResults.innerHTML = `
+            <div class="empty-state small">검색 결과가 없습니다.</div>
+        `;
+        return;
+    }
+
+    dom.quoteSearchResults.innerHTML = results.map(result => `
+        <button
+            class="stock-result"
+            type="button"
+            data-symbol="${escapeHtml(result.symbol)}"
+            data-name="${escapeHtml(result.name)}"
+            data-exchange="${escapeHtml(result.exchange)}">
+            <strong>${escapeHtml(result.symbol)}</strong>
+            <span>${escapeHtml(result.name)}</span>
+            <small>${escapeHtml(result.exchange)}</small>
+        </button>
+    `).join("");
+}
+
+function connectStockQuote(result) {
+    const stock = getStockById(settingsStockId);
+    const nextSymbol = result.dataset.symbol.trim().toUpperCase();
+
+    if (!stock) return;
+
+    if (stocks.some(item => getStockKey(item) !== getStockKey(stock) && item.symbol === nextSymbol)) {
+        alert("이미 다른 종목에 연결되어 있습니다.");
+        return;
+    }
+
+    pendingQuoteConnection = {
+        symbol: nextSymbol,
+        companyName: result.dataset.name.trim(),
+        exchange: result.dataset.exchange.trim()
+    };
+
+    renderStockSettingsConnection(stock, pendingQuoteConnection);
+    closeQuoteConnectionModal();
 }
 
 function openTradeModal(position, trade) {
@@ -909,40 +1110,53 @@ function deleteTrade(positionId, tradeId) {
 function showStockForm() {
     openModal(dom.stockForm);
     dom.stockName.value = "";
-    dom.stockSymbol.value = "";
+    if (dom.stockSymbol) dom.stockSymbol.value = "";
     dom.stockMemo.value = "";
     dom.stockSearchInput.value = "";
     dom.stockSearchResults.innerHTML = "";
+    dom.manualStockDetails.open = false;
     dom.stockSearchInput.focus();
 }
 
 function hideStockForm() {
+    if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = null;
+    }
+
     closeModal(dom.stockForm);
 }
 
-function addStockFromData({ symbol, name, memo = "" }) {
-    const normalizedSymbol = symbol.trim().toUpperCase();
+function addStockFromData({ symbol, name, exchange = "", memo = "" }) {
+    const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+    const displayName = String(name || normalizedSymbol).trim();
+    const connected = Boolean(normalizedSymbol);
 
-    if (normalizedSymbol === "") {
-        alert("심볼을 입력해 주세요.");
+    if (!displayName) {
+        alert("표시 이름을 입력해 주세요.");
         return;
     }
 
-    if (stocks.some(stock => stock.symbol === normalizedSymbol)) {
-        alert("이미 추가된 심볼입니다.");
+    if (connected && stocks.some(stock => stock.symbol === normalizedSymbol)) {
+        alert("이미 추가된 시세 연결입니다.");
         return;
     }
 
     stocks.push({
-        name: name.trim() || normalizedSymbol,
+        id: `stock-${Date.now()}`,
+        displayName,
+        name: displayName,
         symbol: normalizedSymbol,
+        companyName: connected ? displayName : "",
+        exchange: connected ? exchange : "",
+        connected,
         memo,
         currentPrice: null,
         positions: []
     });
 
     selectedIndex = stocks.length - 1;
-    rememberRecentSymbol(normalizedSymbol);
+    rememberRecentStock(stocks[selectedIndex]);
 
     saveStocks();
     hideStockForm();
@@ -952,7 +1166,7 @@ function addStockFromData({ symbol, name, memo = "" }) {
 function saveStock() {
     addStockFromData({
         name: dom.stockName.value.trim(),
-        symbol: dom.stockSymbol.value.trim(),
+        symbol: "",
         memo: dom.stockMemo.value.trim()
     });
 }
@@ -961,7 +1175,7 @@ async function searchStocks() {
     const query = dom.stockSearchInput.value.trim();
 
     if (!query) {
-        alert("검색어를 입력해 주세요.");
+        dom.stockSearchResults.innerHTML = "";
         return;
     }
 
@@ -983,7 +1197,8 @@ async function searchStocks() {
             class="stock-result"
             type="button"
             data-symbol="${escapeHtml(result.symbol)}"
-            data-name="${escapeHtml(result.name)}">
+            data-name="${escapeHtml(result.name)}"
+            data-exchange="${escapeHtml(result.exchange)}">
             <strong>${escapeHtml(result.symbol)}</strong>
             <span>${escapeHtml(result.name)}</span>
             <small>${escapeHtml(result.exchange)}</small>
@@ -998,21 +1213,22 @@ function bindEvents() {
         const item = event.target.closest(".stock-card");
 
         if (pinButton) {
-            togglePinnedSymbol(pinButton.dataset.symbol);
+            const stock = getStockById(pinButton.dataset.stockId);
+
+            if (stock) togglePinnedStock(stock);
             return;
         }
 
         if (!item) return;
 
-        const stock = getStockBySymbol(item.dataset.symbol);
+        const stock = getStockById(item.dataset.stockId);
 
         if (!stock) return;
 
         selectedIndex = stocks.indexOf(stock);
-        rememberRecentSymbol(stock.symbol);
+        rememberRecentStock(stock);
         hideStockForm();
         refreshUI();
-        updateCurrentPrice({ silent: true });
     });
 
     dom.stockList.addEventListener("contextmenu", event => {
@@ -1021,12 +1237,19 @@ function bindEvents() {
         if (!item) return;
 
         event.preventDefault();
-        showStockContextMenu(item.dataset.symbol, event.clientX, event.clientY);
+        showStockContextMenu(item.dataset.stockId, event.clientX, event.clientY);
+    });
+
+    dom.openStockSettingsMenuBtn.addEventListener("click", () => {
+        const stock = getStockById(contextMenuStockId);
+
+        hideStockContextMenu();
+        if (stock) openStockSettingsModal(stock);
     });
 
     dom.deleteStockMenuBtn.addEventListener("click", () => {
-        if (contextMenuSymbol) {
-            deleteStock(contextMenuSymbol);
+        if (contextMenuStockId) {
+            deleteStock(contextMenuStockId);
         }
     });
 
@@ -1041,7 +1264,7 @@ function bindEvents() {
 
         if (!row) return;
 
-        draggedSymbol = row.dataset.symbol;
+        draggedSymbol = row.dataset.stockId;
         row.classList.add("dragging");
     });
 
@@ -1054,11 +1277,11 @@ function bindEvents() {
     dom.stockList.addEventListener("dragover", event => {
         const row = event.target.closest(".stock-row");
 
-        if (!row || !draggedSymbol || row.dataset.symbol === draggedSymbol) return;
+        if (!row || !draggedSymbol || row.dataset.stockId === draggedSymbol) return;
 
         event.preventDefault();
 
-        const draggedRow = dom.stockList.querySelector(`[data-symbol="${draggedSymbol}"]`);
+        const draggedRow = dom.stockList.querySelector(`[data-stock-id="${draggedSymbol}"]`);
         const box = row.getBoundingClientRect();
         const after = event.clientY > box.top + box.height / 2;
 
@@ -1112,8 +1335,17 @@ function bindEvents() {
 
         addStockFromData({
             symbol: result.dataset.symbol,
-            name: result.dataset.name
+            name: result.dataset.name,
+            exchange: result.dataset.exchange
         });
+    });
+
+    dom.quoteSearchResults.addEventListener("click", event => {
+        const result = event.target.closest(".stock-result");
+
+        if (!result) return;
+
+        connectStockQuote(result);
     });
 
     dom.addStockBtn.addEventListener("click", showStockForm);
@@ -1121,13 +1353,35 @@ function bindEvents() {
     dom.saveStockBtn.addEventListener("click", saveStock);
     dom.stockFilterInput.addEventListener("input", renderStocks);
     dom.searchStockBtn.addEventListener("click", searchStocks);
+    dom.stockSearchInput.addEventListener("input", () => {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(searchStocks, 400);
+    });
     dom.stockSearchInput.addEventListener("keydown", event => {
         if (event.key === "Enter") {
+            event.preventDefault();
+            clearTimeout(searchDebounceTimer);
             searchStocks();
         }
     });
 
     dom.updatePriceBtn.addEventListener("click", updateCurrentPrice);
+    dom.openQuoteConnectBtn.addEventListener("click", openQuoteConnectionModal);
+    dom.cancelStockSettingsBtn.addEventListener("click", closeStockSettingsModal);
+    dom.saveStockSettingsBtn.addEventListener("click", saveStockSettings);
+    dom.searchQuoteBtn.addEventListener("click", searchQuoteConnections);
+    dom.cancelQuoteConnectionBtn.addEventListener("click", closeQuoteConnectionModal);
+    dom.quoteSearchInput.addEventListener("input", () => {
+        clearTimeout(connectionSearchDebounceTimer);
+        connectionSearchDebounceTimer = setTimeout(searchQuoteConnections, 400);
+    });
+    dom.quoteSearchInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            clearTimeout(connectionSearchDebounceTimer);
+            searchQuoteConnections();
+        }
+    });
 
     dom.buyPrice.dataset.manualDot = "false";
     dom.buyPrice.addEventListener("focus", () => {
@@ -1158,12 +1412,14 @@ function bindEvents() {
     });
     dom.saveTradeBtn.addEventListener("click", saveTrade);
 
-    [dom.stockForm, dom.positionModal, dom.tradeModal].forEach(modal => {
+    [dom.stockForm, dom.positionModal, dom.tradeModal, dom.stockSettingsModal, dom.quoteConnectionModal].forEach(modal => {
         modal.addEventListener("click", event => {
             if (event.target === modal) {
                 if (modal === dom.stockForm) hideStockForm();
                 if (modal === dom.positionModal) resetPositionForm();
                 if (modal === dom.tradeModal) resetTradeForm();
+                if (modal === dom.stockSettingsModal) closeStockSettingsModal();
+                if (modal === dom.quoteConnectionModal) closeQuoteConnectionModal();
 
                 closeModal(modal);
             }
@@ -1174,13 +1430,14 @@ function bindEvents() {
                 if (modal === dom.stockForm) hideStockForm();
                 if (modal === dom.positionModal) resetPositionForm();
                 if (modal === dom.tradeModal) resetTradeForm();
+                if (modal === dom.stockSettingsModal) closeStockSettingsModal();
+                if (modal === dom.quoteConnectionModal) closeQuoteConnectionModal();
                 closeModal(modal);
             }
 
             if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {
                 event.preventDefault();
 
-                if (modal === dom.stockForm && event.target === dom.stockSearchInput) searchStocks();
                 if (
                     modal === dom.stockForm
                     && [dom.stockName, dom.stockSymbol].includes(event.target)
@@ -1192,6 +1449,9 @@ function bindEvents() {
                 }
                 if (modal === dom.tradeModal) {
                     if (!moveToNextModalField(modal, event.target)) saveTrade();
+                }
+                if (modal === dom.stockSettingsModal) {
+                    saveStockSettings();
                 }
             }
         });

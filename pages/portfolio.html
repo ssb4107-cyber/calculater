@@ -95,6 +95,7 @@
 </div>
 
 <div id="stockContextMenu" class="context-menu" hidden>
+    <button id="openStockSettingsMenuBtn" type="button">종목 설정</button>
     <button id="deleteStockMenuBtn" type="button">삭제</button>
 </div>
 
@@ -112,15 +113,63 @@
 
         <div id="stockSearchResults" class="stock-search-results modal-search-results"></div>
 
-        <div class="manual-stock-fields">
-            <p>검색 결과가 부족하면 직접 추가할 수 있습니다.</p>
-            <input id="stockName" type="text" placeholder="종목명">
-            <input id="stockSymbol" type="text" placeholder="심볼">
-            <textarea id="stockMemo" rows="3" placeholder="메모"></textarea>
-            <div class="button-row compact">
-                <button id="cancelStockBtn" class="btn-secondary" type="button">취소</button>
-                <button id="saveStockBtn" class="btn-primary" type="button">직접 추가</button>
+        <details id="manualStockDetails" class="manual-stock-fields">
+            <summary>직접 추가</summary>
+            <div class="manual-stock-body">
+                <p>검색 결과가 부족하면 직접 추가할 수 있습니다.</p>
+                <input id="stockName" type="text" placeholder="표시 이름">
+                <textarea id="stockMemo" rows="3" placeholder="메모"></textarea>
+                <div class="button-row compact">
+                    <button id="cancelStockBtn" class="btn-secondary" type="button">취소</button>
+                    <button id="saveStockBtn" class="btn-primary" type="button">직접 추가</button>
+                </div>
             </div>
+        </details>
+    </div>
+</div>
+
+<div id="stockSettingsModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+        <h2>종목 설정</h2>
+
+        <div class="form-row">
+            <label for="stockDisplayName">표시 이름</label>
+            <input id="stockDisplayName" type="text" placeholder="예: 파나">
+        </div>
+
+        <div class="form-row">
+            <label>시세 연결</label>
+            <div class="quote-connection-panel">
+                <strong id="quoteConnectionState">⚪ 연결되지 않음</strong>
+                <span id="quoteConnectionName"></span>
+                <small id="quoteConnectionExchange"></small>
+            </div>
+        </div>
+
+        <div class="button-row">
+            <button id="openQuoteConnectBtn" class="btn-secondary" type="button">시세 연결</button>
+            <button id="cancelStockSettingsBtn" class="btn-secondary" type="button">취소</button>
+            <button id="saveStockSettingsBtn" class="btn-primary" type="button">저장</button>
+        </div>
+    </div>
+</div>
+
+<div id="quoteConnectionModal" class="modal" aria-hidden="true">
+    <div class="modal-content stock-modal-content">
+        <h2>시세 연결</h2>
+
+        <div class="form-row">
+            <label for="quoteSearchInput">검색</label>
+            <div class="stock-search-row modal-search-row">
+                <input id="quoteSearchInput" type="text" placeholder="예: Pan">
+                <button id="searchQuoteBtn" class="btn-primary" type="button">검색</button>
+            </div>
+        </div>
+
+        <div id="quoteSearchResults" class="stock-search-results modal-search-results"></div>
+
+        <div class="button-row compact">
+            <button id="cancelQuoteConnectionBtn" class="btn-secondary" type="button">취소</button>
         </div>
     </div>
 </div>
@@ -183,6 +232,7 @@
 <script src="../js/storage.js"></script>
 <script src="../js/dashboard.js"></script>
 <script src="../js/priceProvider.js"></script>
+<script src="../js/refreshManager.js"></script>
 <script src="../js/positionService.js"></script>
 <script src="../js/portfolio.js"></script>
 </body>

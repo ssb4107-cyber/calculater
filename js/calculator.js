@@ -7,6 +7,7 @@ const Calculator = (() => {
 
     const dom = {
         currencyButtons: document.querySelectorAll("[data-currency]"),
+        currencySymbols: document.querySelectorAll("[data-currency-symbol]"),
         autoDecimal: document.getElementById("autoDecimal"),
         currentPrice: document.getElementById("currentPrice"),
         changePercent: document.getElementById("changePercent"),
@@ -87,7 +88,7 @@ const Calculator = (() => {
             }
 
             if (cleanValue.length === 2) {
-                input.value = (number / 10).toFixed(1);
+                input.value = String(number);
                 return;
             }
 
@@ -101,13 +102,17 @@ const Calculator = (() => {
     function handleDecimalKey(event, input) {
         if (event.key !== "." || state.currency !== "USD") return;
 
-        const cleanValue = input.value.replace(/\./g, "");
+        const selectionStart = input.selectionStart ?? input.value.length;
+        const selectionEnd = input.selectionEnd ?? selectionStart;
+        const beforeCursor = input.value.slice(0, selectionStart).replace(/[^0-9]/g, "");
+        const afterCursor = input.value.slice(selectionEnd).replace(/[^0-9]/g, "");
 
-        if (!cleanValue || input.dataset.manualDot === "true") return;
+        if (!beforeCursor || input.dataset.manualDot === "true") return;
 
         event.preventDefault();
-        input.value = `${cleanValue}.`;
+        input.value = `${beforeCursor}.${afterCursor}`;
         input.dataset.manualDot = "true";
+        input.setSelectionRange(beforeCursor.length + 1, beforeCursor.length + 1);
     }
 
     function normalizePercentInput(input) {
@@ -284,6 +289,9 @@ const Calculator = (() => {
         dom.currentPrice.value = "";
         dom.basePrice.value = "";
         dom.changePercent.value = "";
+        dom.currencySymbols.forEach(item => {
+            item.textContent = getCurrencySymbol(currency);
+        });
         dom.currentPrice.dataset.manualDot = "false";
         dom.basePrice.dataset.manualDot = "false";
         renderTargets();
@@ -337,6 +345,12 @@ const Calculator = (() => {
             });
 
             input.addEventListener("keydown", event => {
+                if (event.key === "Enter" && input === dom.currentPrice) {
+                    event.preventDefault();
+                    convertPrice();
+                    return;
+                }
+
                 handleDecimalKey(event, input);
             });
 

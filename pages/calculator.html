@@ -42,7 +42,10 @@
             <div class="calculator-grid">
                 <div class="calculator-field">
                     <label for="currentPrice">현재가</label>
-                    <input id="currentPrice" type="text" inputmode="decimal" placeholder="예: 25.50">
+                    <div class="money-input-wrap">
+                        <span class="currency-prefix" data-currency-symbol>$</span>
+                        <input id="currentPrice" type="text" inputmode="decimal" placeholder="25.50">
+                    </div>
                 </div>
 
                 <div class="calculator-field">
@@ -70,7 +73,10 @@
 
             <div class="calculator-field">
                 <label for="basePrice">기준 가격</label>
-                <input id="basePrice" type="text" inputmode="decimal" placeholder="예: 25.50">
+                <div class="money-input-wrap">
+                    <span class="currency-prefix" data-currency-symbol>$</span>
+                    <input id="basePrice" type="text" inputmode="decimal" placeholder="25.50">
+                </div>
             </div>
 
             <p class="helper-text">

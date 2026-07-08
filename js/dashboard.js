@@ -11,7 +11,11 @@ function getSelectedStock() {
 function getCurrentPrice() {
     const stock = getSelectedStock();
 
-    return stock ? toNumber(stock.currentPrice) : 0;
+    if (!stock || stock.connected === false || !stock.symbol) {
+        return 0;
+    }
+
+    return toNumber(stock.currentPrice);
 }
 
 function getPositionValue(position) {
