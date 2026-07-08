@@ -1,763 +1,1203 @@
-// ===== Portfolio =====
-
-
-
-stocks.forEach(stock=>{
-
-    if(!stock.positions){
-
-        stock.positions=[];
-
-    }
-
-    stock.positions.forEach(position=>{
-
-        if(position.status===undefined)
-            position.status="OPEN";
-
-        if(position.strategy===undefined)
-            position.strategy="";
-
-        if(position.targetPrice===undefined)
-            position.targetPrice=null;
-
-        if(position.stopPrice===undefined)
-            position.stopPrice=null;
-
-        if(position.tags===undefined)
-            position.tags=[];
-
-        if(position.realizedPnL===undefined)
-            position.realizedPnL=0;
-
-        if(position.currentPrice===undefined)
-            position.currentPrice=0;
-
-        if(position.unrealizedPnL===undefined)
-            position.unrealizedPnL=0;
-
-        if(position.unrealizedRate===undefined)
-            position.unrealizedRate=0;
-
-    });
-
-});
-
 let selectedIndex = 0;
 let editingPositionId = null;
 let editingTrade = null;
+let draggedSymbol = null;
+let priceRefreshTimer = null;
+let contextMenuSymbol = null;
 
-const stockList = document.getElementById("stockList");
-const stockTitle = document.getElementById("stockTitle");
-const stockInfo = document.getElementById("stockInfo");
+let stocks = PortfolioStorage.loadStocks();
 
-const stockForm = document.getElementById("stockForm");
+const statusText = Object.freeze({
+    OPEN: "보유",
+    PARTIAL: "부분매도",
+    CLOSED: "매도완료"
+});
 
-const stockName = document.getElementById("stockName");
-const stockSymbol = document.getElementById("stockSymbol");
-const stockMemo = document.getElementById("stockMemo");
+const statusOrder = ["OPEN", "PARTIAL", "CLOSED"];
 
+const dom = {
+    stockList: document.getElementById("stockList"),
+    stockTitle: document.getElementById("stockTitle"),
+    stockDescription: document.getElementById("stockDescription"),
+    currentPrice: document.getElementById("currentPrice"),
+    currentPriceText: document.getElementById("currentPriceText"),
+    averagePriceText: document.getElementById("averagePriceText"),
+    priceUpdatedAt: document.getElementById("priceUpdatedAt"),
+    priceApiStatus: document.getElementById("priceApiStatus"),
+    updatePriceBtn: document.getElementById("updatePriceBtn"),
+    stockContextMenu: document.getElementById("stockContextMenu"),
+    deleteStockMenuBtn: document.getElementById("deleteStockMenuBtn"),
 
-function updatePositionStatus(position){
+    stockForm: document.getElementById("stockForm"),
+    addStockBtn: document.getElementById("addStockBtn"),
+    cancelStockBtn: document.getElementById("cancelStockBtn"),
+    saveStockBtn: document.getElementById("saveStockBtn"),
+    stockSearchInput: document.getElementById("stockSearchInput"),
+    stockFilterInput: document.getElementById("stockFilterInput"),
+    searchStockBtn: document.getElementById("searchStockBtn"),
+    stockSearchResults: document.getElementById("stockSearchResults"),
+    stockName: document.getElementById("stockName"),
+    stockSymbol: document.getElementById("stockSymbol"),
+    stockMemo: document.getElementById("stockMemo"),
 
-    if(position.remainQty===0){
+    positionList: document.getElementById("positionList"),
+    addPositionBtn: document.getElementById("addPositionBtn"),
+    positionModal: document.getElementById("positionModal"),
+    positionModalTitle: document.getElementById("positionModalTitle"),
+    cancelPositionBtn: document.getElementById("cancelPositionBtn"),
+    savePositionBtn: document.getElementById("savePositionBtn"),
+    buyPrice: document.getElementById("buyPrice"),
+    buyQty: document.getElementById("buyQty"),
+    buyDate: document.getElementById("buyDate"),
+    buyMemo: document.getElementById("buyMemo"),
 
-        position.status="CLOSED";
+    tradeModal: document.getElementById("tradeModal"),
+    tradeModalTitle: document.getElementById("tradeModalTitle"),
+    cancelTradeBtn: document.getElementById("cancelTradeBtn"),
+    saveTradeBtn: document.getElementById("saveTradeBtn"),
+    sellPrice: document.getElementById("sellPrice"),
+    sellQty: document.getElementById("sellQty")
+};
 
-    }else if(position.remainQty<position.buyQty){
+function saveStocks(options = {}) {
+    PortfolioStorage.saveStocks(stocks);
 
-        position.status="PARTIAL";
-
-    }else{
-
-        position.status="OPEN";
-
+    if (!options.silent) {
+        UIFeedback.showToast();
     }
-
 }
 
+function formatMoney(value) {
+    return `$${formatNumber(value, 2)}`;
+}
 
+function formatQty(value) {
+    return formatNumber(value, 2);
+}
 
+function formatNumber(value, maxDecimals = 2) {
+    const number = toNumber(value);
 
-function renderPositionGroup(title, list){
+    return number.toLocaleString("en-US", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: maxDecimals
+    });
+}
 
-    const positionList = document.getElementById("positionList");
+function parseFormattedNumber(value) {
+    const number = Number(String(value).replace(/,/g, ""));
 
-    positionList.insertAdjacentHTML("beforeend",`
-        <h3 style="margin:20px 0 10px;">
-            ${title}
-        </h3>
-    `);
+    return Number.isFinite(number) ? number : 0;
+}
 
-    if(list.length===0){
+function calculateStockAveragePrice(stock) {
+    return PositionService.calculateStockAveragePrice(stock);
+}
 
-        positionList.insertAdjacentHTML("beforeend",`
-            <div style="margin-bottom:15px;color:#888;">
-                없음
-            </div>
-        `);
+function getApiFailureCount(symbol) {
+    const settings = SilverSettings.load();
 
+    return Number(settings.apiFailureCountBySymbol?.[symbol]) || 0;
+}
+
+function setApiFailureCount(symbol, count) {
+    const settings = SilverSettings.load();
+
+    SilverSettings.update({
+        apiFailureCountBySymbol: {
+            ...(settings.apiFailureCountBySymbol || {}),
+            [symbol]: count
+        }
+    });
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function normalizePriceInput(input) {
+    let cleanValue = input.value.replace(/[^0-9.]/g, "");
+    const parts = cleanValue.split(".");
+
+    if (parts.length > 2) {
+        cleanValue = `${parts[0]}.${parts.slice(1).join("")}`;
+    }
+
+    if (!cleanValue || !cleanValue.includes(".")) {
+        input.dataset.manualDot = "false";
+    }
+
+    if (input.dataset.manualDot !== "true" && !cleanValue.includes(".")) {
+        if (cleanValue.length === 0) {
+            input.value = "";
+            return;
+        }
+
+        const number = Number(cleanValue);
+
+        if (cleanValue.length === 1) {
+            input.value = String(number);
+            return;
+        }
+
+        if (cleanValue.length === 2) {
+            input.value = (number / 10).toFixed(1);
+            return;
+        }
+
+        input.value = (number / 100).toFixed(2);
         return;
     }
 
-    list
-        .sort((a,b)=>b.buyPrice-a.buyPrice)
-        .forEach((position,index)=>{
-
-            positionList.insertAdjacentHTML("beforeend",`
-
-            <div class="position-card">
-
-                <div class="position-title">
-
-                    Position #${position.number}
-
-                    <br>
-
-                    ${position.buyPrice.toFixed(2)}$
-
-                </div>
-
-                <div>
-                    현재보유 : ${position.remainQty}주
-                </div>
-
-                <div>
-                    최초매수 : ${position.buyQty}주
-                </div>
-
-                <div>
-                    매도수량 : ${position.buyQty-position.remainQty}주
-                </div>
-
-                <div>
-
-                    진행률 :
-                    ${Math.round((position.remainQty/position.buyQty)*100)}%
-
-                </div>
-
-                <div style="margin-top:6px;">
-
-                <div style="
-                height:8px;
-                background:#ddd;
-                border-radius:5px;
-                overflow:hidden;
-                ">
-
-                <div style="
-                width:${Math.round((position.remainQty/position.buyQty)*100)}%;
-                height:100%;
-                background:#22c55e;
-                ">
-                </div>
-
-                </div>
-
-                </div>
-
-                <div>
-                    날짜 : ${position.buyDate}
-                </div>
-
-                <div>
-                    메모 : ${position.memo || "-"}
-                    <hr>
-
-                    <div>
-
-                    현재가 :
-                    ${(position.currentPrice ?? 0).toFixed(2)}$
-
-                    </div>
-
-                    <div>
-
-                    평가손익 :
-
-                    ${(position.unrealizedPnL ?? 0).toFixed(2)}$
-
-                    </div>
-
-                    <div>
-
-                    수익률 :
-
-                    ${(position.unrealizedRate ?? 0).toFixed(2)}%
-                    <hr>
-
-                    <div>
-
-                    실현손익 :
-
-                    ${position.realizedPnL.toFixed(2)}$
-
-                    </div>
-
-                    </div>
-                </div>
-
-                <button
-                class="editPositionBtn"
-                data-id="${position.id}">
-
-                ✏ Position 수정
-
-                </button>
-
-                <br><br>
-
-                <br>
-
-                <button
-                class="deletePositionBtn"
-                data-id="${position.id}">
-
-                🗑 Position 삭제
-
-                </button>
-
-                <br><br>
-                <button class="toggleBtn"
-                        data-id="${position.id}">
-                    ▶ Position 열기
-                </button>
-
-                <div
-                    class="tradeArea"
-                    id="trade-${position.id}"
-                    style="display:none;margin-top:15px;">
-
-                    <button
-                        class="sellBtn"
-                        data-id="${position.id}">
-                        매도
-                    </button>
-
-                    <hr>
-
-                    <div class="tradeHistory">
-
-                        ${
-                            position.trades.length===0
-                            ?
-                            "거래내역이 없습니다."
-                            :
-                            position.trades.map(trade=>`
-
-                                <div class="trade-item">
-
-                                    📅 ${trade.date.substring(0,10)}<br>
-                                    💰 ${trade.price.toFixed(2)}$<br>
-                                    📦 ${trade.qty}주
-                                    <br><br>
-
-                                    <button
-                                    class="editTradeBtn"
-                                    data-position="${position.id}"
-                                    data-trade="${trade.id}">
-
-                                    ✏
-
-                                    </button>
-
-                                    <button
-                                    class="deleteTradeBtn"
-                                    data-position="${position.id}"
-                                    data-trade="${trade.id}">
-
-                                    🗑
-
-                                    </button>
-                                    <br>
-
-                                    💵 ${trade.realizedPnL?.toFixed(2) ?? "0.00"}$
-
-                                </div>
-
-                                <hr>
-
-                            `).join("")
-                        }
-
-                    </div>
-
-                </div>
-
-            </div>
-
-            `);
-
-        });
-
+    input.value = cleanValue;
 }
 
-function bindPositionEvents(){
+function normalizePlainNumberInput(input) {
+    const cleanValue = input.value.replace(/[^0-9.]/g, "");
+    const parts = cleanValue.split(".");
 
-    document.querySelectorAll(".editPositionBtn").forEach(btn=>{
+    input.value = parts.length > 2
+        ? `${parts[0]}.${parts.slice(1).join("")}`
+        : parts.join(".");
+}
 
-    btn.onclick=()=>{
+function formatInputOnBlur(input, maxDecimals = 2) {
+    const number = parseFormattedNumber(input.value);
 
-        const id = Number(btn.dataset.id);
+    if (number > 0) {
+        input.value = formatNumber(number, maxDecimals);
+    }
+}
 
-        const position = stocks[selectedIndex].positions.find(
-            p => p.id === id
-        );
+function handleDecimalKey(event, input) {
+    if (event.key !== ".") return;
 
-        if(!position) return;
+    const cleanValue = input.value.replace(/\./g, "");
 
-        editingPositionId = id;
+    if (!cleanValue || input.dataset.manualDot === "true") return;
 
-        document.getElementById("buyPrice").value = position.buyPrice;
-        document.getElementById("buyQty").value = position.buyQty;
-        document.getElementById("buyDate").value = position.buyDate;
-        document.getElementById("buyMemo").value = position.memo;
+    event.preventDefault();
+    input.value = `${cleanValue}.`;
+    input.dataset.manualDot = "true";
+}
 
-        document.getElementById("positionForm").style.display = "block";
+function getStock() {
+    return stocks[selectedIndex] || null;
+}
 
-    };
+function getStockBySymbol(symbol) {
+    return stocks.find(stock => stock.symbol === symbol) || null;
+}
 
-});
+function getPositionById(id) {
+    const stock = getStock();
 
-    document.querySelectorAll(".deletePositionBtn").forEach(btn=>{
+    if (!stock) return null;
 
-    btn.onclick=()=>{
+    return stock.positions.find(position => position.id === Number(id)) || null;
+}
 
-        if(!confirm("이 Position을 삭제하시겠습니까?")) return;
+function getTradeById(position, tradeId) {
+    if (!position) return null;
 
-        const id=Number(btn.dataset.id);
+    return position.trades.find(trade => trade.id === Number(tradeId)) || null;
+}
 
-        stocks[selectedIndex].positions =
-            stocks[selectedIndex].positions.filter(
-                p=>p.id!==id
-            );
+function getTotalSoldQty(position) {
+    return PositionService.getTotalSoldQty(position);
+}
 
-        saveStocks();
+function updatePositionStatus(position) {
+    PositionService.updatePositionStatus(position);
+}
 
-        renderPositions();
+function recalculatePosition(position) {
+    PositionService.recalculatePosition(position);
+}
 
-        };
+function recalculateAllPositions() {
+    PositionService.recalculateAllPositions(stocks);
+}
 
-    });
+function openModal(modal) {
+    modal.style.display = "flex";
+    modal.setAttribute("aria-hidden", "false");
 
-    document.querySelectorAll(".toggleBtn").forEach(btn=>{
+    const firstInput = modal.querySelector("input, textarea, button");
+    firstInput?.focus();
+}
 
-        btn.onclick=()=>{
+function closeModal(modal) {
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+}
 
-            const area=document.getElementById("trade-"+btn.dataset.id);
+function getModalFields(modal) {
+    return Array.from(modal.querySelectorAll("input, textarea"))
+        .filter(field => !field.classList.contains("visually-hidden"));
+}
 
-            if(!area) return;
+function moveToNextModalField(modal, currentField) {
+    const fields = getModalFields(modal);
+    const index = fields.indexOf(currentField);
+    const nextField = fields[index + 1];
 
-            if(area.style.display==="none"){
+    if (nextField) {
+        nextField.focus();
+        nextField.select?.();
+        return true;
+    }
 
-                area.style.display="block";
-                btn.textContent="▼ Position 닫기";
+    return false;
+}
 
-            }else{
+function resetPositionForm() {
+    editingPositionId = null;
+    dom.positionModalTitle.textContent = "포지션 추가";
+    dom.buyPrice.value = "";
+    dom.buyQty.value = "";
+    dom.buyDate.value = "";
+    dom.buyMemo.value = "";
+}
 
-                area.style.display="none";
-                btn.textContent="▶ Position 열기";
+function resetTradeForm() {
+    editingTrade = null;
+    dom.tradeModalTitle.textContent = "부분매도";
+    dom.sellPrice.value = "";
+    dom.sellQty.value = "";
+}
 
+function getOrderedStocks() {
+    const settings = SilverSettings.load();
+    const pinned = settings.pinnedSymbols || [];
+    const order = settings.stockOrder || [];
+    const recent = settings.recentSymbols || [];
+
+    return stocks
+        .slice()
+        .sort((a, b) => {
+            const aPinned = pinned.includes(a.symbol);
+            const bPinned = pinned.includes(b.symbol);
+
+            if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
+            const aOrder = order.indexOf(a.symbol);
+            const bOrder = order.indexOf(b.symbol);
+
+            if (aOrder !== -1 || bOrder !== -1) {
+                return (aOrder === -1 ? 999 : aOrder)
+                    - (bOrder === -1 ? 999 : bOrder);
             }
 
-        };
+            const aRecent = recent.indexOf(a.symbol);
+            const bRecent = recent.indexOf(b.symbol);
 
-    });
+            if (aRecent !== -1 || bRecent !== -1) {
+                return (aRecent === -1 ? 999 : aRecent)
+                    - (bRecent === -1 ? 999 : bRecent);
+            }
 
-    document.querySelectorAll(".sellBtn").forEach(btn=>{
-
-        btn.onclick=()=>{
-
-            const id=Number(btn.dataset.id);
-
-            const position=stocks[selectedIndex].positions.find(p=>p.id===id);
-
-            if(!position) return;
-
-            editingTrade = {
-
-                mode="add";
-
-                position
-
-            };
-
-            document.getElementById("sellPrice").value="";
-
-            document.getElementById("sellQty").value="";
-
-            document.getElementById("tradeForm").style.display="block";
-
-            recalculatePosition(position);
-
-            saveStocks();
-            renderPositions();
-
-        };
-
-    });
-    bindTradeEvents();
+            return a.symbol.localeCompare(b.symbol);
+        });
 }
 
-function recalculatePosition(position){
+function rememberRecentSymbol(symbol) {
+    const settings = SilverSettings.load();
+    const recentSymbols = [
+        symbol,
+        ...(settings.recentSymbols || []).filter(item => item !== symbol)
+    ].slice(0, 20);
 
-    position.remainQty = position.buyQty;
+    SilverSettings.update({ recentSymbols });
+}
 
-    position.realizedPnL = 0;
+function togglePinnedSymbol(symbol) {
+    const settings = SilverSettings.load();
+    const pinnedSymbols = settings.pinnedSymbols || [];
+    const nextPinned = pinnedSymbols.includes(symbol)
+        ? pinnedSymbols.filter(item => item !== symbol)
+        : [...pinnedSymbols, symbol];
 
-    position.trades.forEach(trade=>{
+    SilverSettings.update({ pinnedSymbols: nextPinned });
+    renderStocks();
+}
 
-        if(trade.type==="SELL"){
+function saveStockOrderFromDom() {
+    const stockOrder = Array.from(dom.stockList.querySelectorAll(".stock-row"))
+        .map(item => item.dataset.symbol)
+        .filter(Boolean);
 
-            position.remainQty -= trade.qty;
+    SilverSettings.update({ stockOrder });
+}
 
-            trade.realizedPnL =
-                (trade.price-position.buyPrice)
-                *trade.qty;
+function renderStocks() {
+    const settings = SilverSettings.load();
+    const pinned = settings.pinnedSymbols || [];
+    const filterText = dom.stockFilterInput?.value.trim().toUpperCase() || "";
+    const orderedStocks = getOrderedStocks()
+        .filter(stock => {
+            if (!filterText) return true;
 
-            position.realizedPnL += trade.realizedPnL;
+            return stock.symbol.includes(filterText)
+                || (stock.name || "").toUpperCase().includes(filterText);
+        });
 
+    dom.stockList.innerHTML = "";
+
+    orderedStocks.forEach((stock, orderIndex) => {
+        if (
+            orderIndex > 0
+            && pinned.includes(orderedStocks[orderIndex - 1].symbol)
+            && !pinned.includes(stock.symbol)
+        ) {
+            const divider = document.createElement("div");
+            divider.className = "stock-divider";
+            divider.textContent = "최근 본 종목";
+            dom.stockList.appendChild(divider);
         }
 
-    });
+        const row = document.createElement("article");
+        const pinButton = document.createElement("button");
+        const selectButton = document.createElement("button");
 
-    updatePositionStatus(position);
+        row.className = "stock-row";
+        row.draggable = true;
+        row.dataset.symbol = stock.symbol;
 
-}
-
-function bindTradeEvents(){
-
-    document.querySelectorAll(".deleteTradeBtn").forEach(btn=>{
-
-        btn.onclick=()=>{
-
-            const positionId=Number(btn.dataset.position);
-
-            const tradeId=Number(btn.dataset.trade);
-
-            const position=stocks[selectedIndex]
-                .positions
-                .find(p=>p.id===positionId);
-
-            if(!position) return;
-
-            const trade=position.trades.find(
-                t=>t.id===tradeId
-            );
-
-            if(!trade) return;
-
-            if(!confirm("거래를 삭제하시겠습니까?"))
-                return;
-
-
-            position.trades=
-                position.trades.filter(
-                    t=>t.id!==tradeId
-                );
-
-                recalculatePosition(position);
-
-                saveStocks();
-
-                renderPositions();
-
-
-        };
-
-    });
-document.querySelectorAll(".editTradeBtn").forEach(btn=>{
-
-    btn.onclick=()=>{
-
-        const positionId = Number(btn.dataset.position);
-        const tradeId = Number(btn.dataset.trade);
-
-        const position = stocks[selectedIndex]
-            .positions
-            .find(p=>p.id===positionId);
-
-        if(!position) return;
-
-        const trade = position.trades.find(
-            t=>t.id===tradeId
+        pinButton.type = "button";
+        pinButton.className = "pin-stock-btn";
+        pinButton.classList.toggle("pinned", pinned.includes(stock.symbol));
+        pinButton.dataset.symbol = stock.symbol;
+        pinButton.textContent = "📌";
+        pinButton.setAttribute(
+            "aria-label",
+            pinned.includes(stock.symbol) ? "종목 고정 해제" : "종목 고정"
         );
 
-        if(!trade) return;
+        selectButton.type = "button";
+        selectButton.className = "stock-card";
+        selectButton.dataset.symbol = stock.symbol;
+        selectButton.innerHTML = `
+            <strong>${escapeHtml(stock.symbol)}</strong>
+            <span>${escapeHtml(stock.name || stock.memo || "종목 정보 없음")}</span>
+        `;
 
-        editingTrade = {
+        if (stocks[selectedIndex]?.symbol === stock.symbol) {
+            selectButton.classList.add("active");
+        }
 
-            mode:"edit",
-
-            position,
-
-            trade
-
-        };
-
-        document.getElementById("sellPrice").value = trade.price;
-        document.getElementById("sellQty").value = trade.qty;
-
-        document.getElementById("tradeForm").style.display = "block";
-
-
-        recalculatePosition(position);
-
-        saveStocks();
-        renderPositions();
-
-    };
-
-});
+        row.appendChild(selectButton);
+        row.appendChild(pinButton);
+        dom.stockList.appendChild(row);
+    });
 }
 
+function renderTradeList(position) {
+    if (position.trades.length === 0) {
+        return `
+            <div class="empty-state">
+                거래내역이 없습니다.
+            </div>
+        `;
+    }
 
+    return position.trades.map(trade => `
+        <div class="trade-item">
+            <div>
+                <strong>${new Date(trade.date).toLocaleDateString("ko-KR")}</strong>
+                <span>매도가 ${formatMoney(trade.price)}</span>
+                <span>수량 ${formatQty(trade.qty)}주</span>
+                <span>실현손익 ${formatMoney(trade.realizedPnL)}</span>
+            </div>
 
+            <div class="trade-actions">
+                <button
+                    type="button"
+                    class="editTradeBtn"
+                    data-position-id="${position.id}"
+                    data-trade-id="${trade.id}">
+                    수정
+                </button>
 
+                <button
+                    type="button"
+                    class="deleteTradeBtn"
+                    data-position-id="${position.id}"
+                    data-trade-id="${trade.id}">
+                    삭제
+                </button>
+            </div>
+        </div>
+    `).join("");
+}
 
+function renderPositionCard(position) {
+    const memo = position.memo
+        ? `<div class="position-memo">${escapeHtml(position.memo)}</div>`
+        : `<div class="empty-state small">메모가 없습니다.</div>`;
+    const tags = (position.tags || []).length
+        ? position.tags.map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")
+        : `<span class="empty-inline">태그 없음</span>`;
 
-document.getElementById("addStockBtn").onclick = () => {
+    return `
+        <article class="position-card">
+            <div class="position-title">
+                <div>
+                    <span class="position-kicker">포지션</span>
+                    <strong>#${position.number}</strong>
+                </div>
+                <span class="status-badge status-${position.status.toLowerCase()}">
+                    ${statusText[position.status]}
+                </span>
+            </div>
 
-    stockTitle.textContent = "새 종목";
+            <div class="position-grid compact-grid">
+                <div class="info-item">
+                    <span class="info-label">매수가</span>
+                    <span class="info-value">${formatMoney(position.buyPrice)}</span>
+                </div>
 
-    stockInfo.textContent = "종목 정보를 입력하세요.";
+                <div class="info-item highlight">
+                    <span class="info-label">평가손익</span>
+                    <span class="info-value">${formatMoney(getPositionUnrealized(position))}</span>
+                </div>
 
-    stockForm.style.display = "block";
+                <div class="info-item">
+                    <span class="info-label">실현손익</span>
+                    <span class="info-value">${formatMoney(position.realizedPnL)}</span>
+                </div>
 
-};
+                <div class="info-item">
+                    <span class="info-label">보유수량</span>
+                    <span class="info-value">${formatQty(position.remainQty)} / ${formatQty(position.buyQty)}주</span>
+                </div>
+            </div>
 
-document.getElementById("saveStockBtn").onclick = () => {
+            <details class="position-more">
+                <summary>더보기</summary>
+                <div class="position-more-body">
+                    <div class="info-item">
+                        <span class="info-label">매수일</span>
+                        <span class="info-value">${position.buyDate || "-"}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">총 손익</span>
+                        <span class="info-value">${formatMoney(getPositionTotalPnL(position))}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">수익률</span>
+                        <span class="info-value">${getPositionRate(position).toFixed(2)}%</span>
+                    </div>
+                    <div class="tag-list">
+                        <span class="info-label">태그</span>
+                        <div>${tags}</div>
+                    </div>
+                    ${memo}
+                    <div id="trade-${position.id}" class="trade-list">
+                        ${renderTradeList(position)}
+                    </div>
+                </div>
+            </details>
 
-    if (stockSymbol.value.trim() === "") {
-        alert("심볼을 입력하세요.");
+            <div class="position-actions">
+                <button type="button" class="sellBtn" data-id="${position.id}">
+                    부분매도
+                </button>
+
+                <button type="button" class="editPositionBtn" data-id="${position.id}">
+                    수정
+                </button>
+
+                <button type="button" class="clonePositionBtn" data-id="${position.id}">
+                    복제
+                </button>
+
+                <button type="button" class="deletePositionBtn" data-id="${position.id}">
+                    삭제
+                </button>
+            </div>
+        </article>
+    `;
+}
+
+function getPositionGroupHtml(status) {
+    const stock = getStock();
+    const list = stock.positions
+        .filter(position => position.status === status)
+        .slice()
+        .sort((a, b) => b.buyPrice - a.buyPrice);
+
+    let html = `
+        <h3 class="position-group-title">${statusText[status]}</h3>
+    `;
+
+    if (list.length === 0) {
+        return html + `
+            <div class="empty-state">해당 포지션이 없습니다.</div>
+        `;
+    }
+
+    return html + list.map(renderPositionCard).join("");
+}
+
+function renderPositionGroup(status) {
+    dom.positionList.insertAdjacentHTML("beforeend", getPositionGroupHtml(status));
+}
+
+function renderPositions() {
+    const stock = getStock();
+
+    dom.positionList.innerHTML = "";
+
+    if (!stock) {
+        dom.positionList.textContent = "종목을 선택해 주세요.";
+        return;
+    }
+
+    if (stock.positions.length === 0) {
+        dom.positionList.innerHTML = `
+            <div class="empty-state">
+                아직 포지션이 없습니다. 오른쪽 위의 + 포지션 버튼으로 첫 포지션을 추가하세요.
+            </div>
+        `;
+        return;
+    }
+
+    dom.positionList.innerHTML = statusOrder
+        .map(getPositionGroupHtml)
+        .join("");
+}
+
+function renderPriceStatus(stock, status = null, message = null) {
+    const settings = SilverSettings.load();
+    const cached = stock ? PriceProvider.getCachedPrice(stock.symbol) : null;
+    const failureCount = stock ? getApiFailureCount(stock.symbol) : 0;
+    const updatedAtValue = stock
+        ? settings.priceUpdatedAtBySymbol?.[stock.symbol]
+            || cached?.updatedAt
+        : null;
+    const updatedAt = updatedAtValue
+        ? new Date(updatedAtValue).toLocaleString("ko-KR")
+        : "없음";
+    const nextStatus = status || (failureCount >= 2 ? "ERROR" : failureCount === 1 ? "WAIT" : "OK");
+    const nextMessage = message
+        || (failureCount >= 2 ? "🔴 연결 끊김" : failureCount === 1 ? "🟡 연결 불안정" : "🟢 정상");
+
+    dom.currentPriceText.textContent = formatMoney(stock?.currentPrice || 0);
+    dom.averagePriceText.textContent = `평단가: ${formatMoney(calculateStockAveragePrice(stock))}`;
+    dom.priceUpdatedAt.textContent = `최근 갱신: ${updatedAt}`;
+    dom.priceApiStatus.className = "api-status";
+    dom.priceApiStatus.classList.add(`status-${nextStatus.toLowerCase()}`);
+    dom.priceApiStatus.textContent = nextMessage;
+}
+
+function renderStockDetail() {
+    const stock = getStock();
+
+    if (!stock) {
+        dom.stockTitle.textContent = "종목 없음";
+        dom.stockDescription.textContent = "종목을 추가해 주세요.";
+        dom.currentPrice.value = "";
+        dom.currentPriceText.textContent = "$0";
+        dom.averagePriceText.textContent = "평단가: $0";
+        dom.priceUpdatedAt.textContent = "최근 갱신: 없음";
+        dom.priceApiStatus.textContent = "종목 없음";
+        return;
+    }
+
+    dom.stockTitle.textContent = stock.symbol;
+    dom.stockDescription.textContent = stock.name || stock.memo || "종목 메모가 없습니다.";
+    dom.currentPrice.value = stock.currentPrice ?? "";
+    renderPriceStatus(stock);
+}
+
+function refreshUI() {
+    if (!stocks[selectedIndex]) {
+        selectedIndex = 0;
+    }
+
+    SilverSettings.applyTheme(document);
+    recalculateAllPositions();
+    renderStocks();
+    renderStockDetail();
+    renderPositions();
+    renderDashboard();
+}
+
+async function updateCurrentPrice(options = {}) {
+    const stock = getStock();
+    const silent = options.silent === true;
+
+    if (!stock) return;
+
+    dom.updatePriceBtn.disabled = true;
+    dom.updatePriceBtn.textContent = "조회 중";
+    if (!silent) {
+        renderPriceStatus(stock, "WAIT", "API 조회 중");
+    }
+
+    const result = await PriceProvider.getCurrentPrice(stock.symbol, {
+        force: options.force === true
+    });
+
+    if (result.price) {
+        stock.currentPrice = result.price;
+        saveStocks({ silent: true });
+        setApiFailureCount(stock.symbol, result.ok ? 0 : getApiFailureCount(stock.symbol) + 1);
+        renderPriceStatus(
+            stock,
+            result.ok ? "OK" : getApiFailureCount(stock.symbol) >= 2 ? "ERROR" : "WAIT",
+            result.ok ? "🟢 정상" : getApiFailureCount(stock.symbol) >= 2 ? "🔴 연결 끊김" : "🟡 연결 불안정"
+        );
+        refreshUI();
+    } else {
+        setApiFailureCount(stock.symbol, getApiFailureCount(stock.symbol) + 1);
+        renderPriceStatus(
+            stock,
+            getApiFailureCount(stock.symbol) >= 2 ? "ERROR" : "WAIT",
+            getApiFailureCount(stock.symbol) >= 2 ? "🔴 연결 끊김" : "🟡 연결 불안정"
+        );
+    }
+
+    dom.updatePriceBtn.disabled = false;
+    dom.updatePriceBtn.textContent = "현재가 새로고침";
+}
+
+function schedulePriceRefresh() {
+    const settings = SilverSettings.load();
+    const intervalMinutes = Number(settings.apiRefreshIntervalMinutes) || 5;
+
+    if (priceRefreshTimer) {
+        clearInterval(priceRefreshTimer);
+    }
+
+    if (!PriceProvider.getEffectiveApiKey()) {
+        return;
+    }
+
+    updateCurrentPrice({ silent: true });
+    priceRefreshTimer = setInterval(() => {
+        updateCurrentPrice({ silent: true });
+    }, intervalMinutes * 60 * 1000);
+}
+
+function openAddPositionModal() {
+    resetPositionForm();
+    dom.buyDate.value = new Date().toISOString().slice(0, 10);
+    openModal(dom.positionModal);
+    dom.buyPrice.focus();
+}
+
+function openEditPositionModal(position) {
+    editingPositionId = position.id;
+    dom.positionModalTitle.textContent = "포지션 수정";
+    dom.buyPrice.value = formatNumber(position.buyPrice, 2);
+    dom.buyQty.value = formatNumber(position.buyQty, 2);
+    dom.buyDate.value = position.buyDate;
+    dom.buyMemo.value = position.memo;
+
+    openModal(dom.positionModal);
+    dom.buyPrice.focus();
+}
+
+function openClonePositionModal(position) {
+    editingPositionId = null;
+    dom.positionModalTitle.textContent = "포지션 복제";
+    dom.buyPrice.value = formatNumber(position.buyPrice, 2);
+    dom.buyQty.value = formatNumber(position.buyQty, 2);
+    dom.buyDate.value = new Date().toISOString().slice(0, 10);
+    dom.buyMemo.value = position.memo;
+
+    openModal(dom.positionModal);
+    dom.buyQty.focus();
+    dom.buyQty.select();
+}
+
+function savePosition() {
+    const stock = getStock();
+    const price = parseFormattedNumber(dom.buyPrice.value);
+    const qty = parseFormattedNumber(dom.buyQty.value);
+    const date = dom.buyDate.value;
+    const memo = dom.buyMemo.value.trim();
+
+    if (!stock) return;
+
+    if (!price || price <= 0 || !qty || qty <= 0) {
+        alert("매수가와 수량을 0보다 큰 숫자로 입력해 주세요.");
+        return;
+    }
+
+    if (editingPositionId === null) {
+        stock.positions.push({
+            id: Date.now(),
+            number: stock.positions.reduce(
+                (max, position) => Math.max(max, position.number),
+                0
+            ) + 1,
+            type: "TRADING",
+            buyPrice: price,
+            buyQty: qty,
+            remainQty: qty,
+            buyDate: date,
+            memo,
+            status: "OPEN",
+            tags: [],
+            realizedPnL: 0,
+            trades: []
+        });
+    } else {
+        const position = getPositionById(editingPositionId);
+
+        if (!position) return;
+
+        const soldQty = getTotalSoldQty(position);
+
+        if (qty < soldQty) {
+            alert(`이미 매도한 수량(${formatQty(soldQty)}주)보다 적게 수정할 수 없습니다.`);
+            return;
+        }
+
+        position.buyPrice = price;
+        position.buyQty = qty;
+        position.buyDate = date;
+        position.memo = memo;
+
+        recalculatePosition(position);
+    }
+
+    saveStocks();
+    resetPositionForm();
+    closeModal(dom.positionModal);
+    refreshUI();
+}
+
+function deletePosition(positionId) {
+    const stock = getStock();
+    const position = getPositionById(positionId);
+
+    if (!stock || !position) return;
+
+    if (!confirm(`포지션 #${position.number}을 삭제하시겠습니까? 거래내역도 함께 삭제됩니다.`)) {
+        return;
+    }
+
+    stock.positions = stock.positions.filter(item => item.id !== position.id);
+
+    saveStocks();
+    refreshUI();
+}
+
+function showStockContextMenu(symbol, x, y) {
+    contextMenuSymbol = symbol;
+    dom.stockContextMenu.style.left = `${x}px`;
+    dom.stockContextMenu.style.top = `${y}px`;
+    dom.stockContextMenu.hidden = false;
+}
+
+function hideStockContextMenu() {
+    contextMenuSymbol = null;
+    dom.stockContextMenu.hidden = true;
+}
+
+function deleteStock(symbol) {
+    const stock = getStockBySymbol(symbol);
+
+    if (!stock) return;
+
+    if (!confirm(`${stock.symbol} 종목을 삭제하시겠습니까? 해당 종목의 포지션과 거래내역도 함께 삭제됩니다.`)) {
+        return;
+    }
+
+    stocks = stocks.filter(item => item.symbol !== symbol);
+    selectedIndex = Math.max(0, Math.min(selectedIndex, stocks.length - 1));
+    saveStocks();
+    hideStockContextMenu();
+    refreshUI();
+}
+
+function openTradeModal(position, trade) {
+    editingTrade = {
+        mode: trade ? "edit" : "add",
+        position,
+        trade: trade || null
+    };
+
+    dom.tradeModalTitle.textContent = trade
+        ? "부분매도 수정"
+        : `포지션 #${position.number} 부분매도`;
+    dom.sellPrice.value = trade ? formatNumber(trade.price, 2) : "";
+    dom.sellQty.value = trade ? formatNumber(trade.qty, 2) : "";
+
+    if (!trade) {
+        const stock = getStock();
+        const cached = stock ? PriceProvider.getCachedPrice(stock.symbol) : null;
+        const price = toNumber(stock?.currentPrice) || toNumber(cached?.price);
+
+        if (price > 0) {
+            dom.sellPrice.value = price.toFixed(2);
+        }
+    }
+
+    openModal(dom.tradeModal);
+    dom.sellPrice.focus();
+}
+
+function saveTrade() {
+    const price = parseFormattedNumber(dom.sellPrice.value);
+    const qty = parseFormattedNumber(dom.sellQty.value);
+
+    if (!editingTrade) return;
+
+    if (!price || price <= 0 || !qty || qty <= 0) {
+        alert("매도가와 매도수량을 0보다 큰 숫자로 입력해 주세요.");
+        return;
+    }
+
+    const { mode, position, trade } = editingTrade;
+    const availableQty = mode === "edit"
+        ? toNumber(position.remainQty) + toNumber(trade.qty)
+        : toNumber(position.remainQty);
+
+    if (qty > availableQty) {
+        alert(`보유수량을 초과했습니다. 매도 가능 수량은 ${formatQty(availableQty)}주입니다.`);
+        return;
+    }
+
+    if (mode === "add") {
+        position.trades.push({
+            id: Date.now(),
+            type: "SELL",
+            price,
+            qty,
+            date: new Date().toISOString(),
+            realizedPnL: 0
+        });
+    } else {
+        trade.price = price;
+        trade.qty = qty;
+    }
+
+    recalculatePosition(position);
+    saveStocks();
+    resetTradeForm();
+    closeModal(dom.tradeModal);
+    refreshUI();
+}
+
+function deleteTrade(positionId, tradeId) {
+    const position = getPositionById(positionId);
+    const trade = getTradeById(position, tradeId);
+
+    if (!position || !trade) return;
+
+    if (!confirm("이 거래내역을 삭제하시겠습니까?")) {
+        return;
+    }
+
+    position.trades = position.trades.filter(item => item.id !== trade.id);
+    recalculatePosition(position);
+
+    saveStocks();
+    refreshUI();
+}
+
+function showStockForm() {
+    openModal(dom.stockForm);
+    dom.stockName.value = "";
+    dom.stockSymbol.value = "";
+    dom.stockMemo.value = "";
+    dom.stockSearchInput.value = "";
+    dom.stockSearchResults.innerHTML = "";
+    dom.stockSearchInput.focus();
+}
+
+function hideStockForm() {
+    closeModal(dom.stockForm);
+}
+
+function addStockFromData({ symbol, name, memo = "" }) {
+    const normalizedSymbol = symbol.trim().toUpperCase();
+
+    if (normalizedSymbol === "") {
+        alert("심볼을 입력해 주세요.");
+        return;
+    }
+
+    if (stocks.some(stock => stock.symbol === normalizedSymbol)) {
+        alert("이미 추가된 심볼입니다.");
         return;
     }
 
     stocks.push({
-    name: stockName.value.trim(),
-    symbol: stockSymbol.value.trim().toUpperCase(),
-    memo: stockMemo.value.trim(),
-    positions:[]
-});
-
-    selectedIndex = stocks.length - 1;
-
-    saveStocks();
-    renderPositions();
-
-    renderStocks();
-
-    stockTitle.textContent = stocks[selectedIndex].symbol;
-    stockInfo.textContent = stocks[selectedIndex].name;
-
-    stockForm.style.display = "none";
-
-    stockName.value = "";
-    stockSymbol.value = "";
-    stockMemo.value = "";
-
-};
-
-renderStocks();
-
-stockTitle.textContent = stocks[selectedIndex].symbol;
-stockInfo.textContent = stocks[selectedIndex].name;
-renderPositions();
-
-const positionList=document.getElementById("positionList");
-positionList.innerHTML="";
-
-const positionForm=document.getElementById("positionForm");
-
-
-document.getElementById("addPositionBtn").onclick=()=>{
-
-    editingPositionId = null;
-
-    document.getElementById("buyPrice").value="";
-    document.getElementById("buyQty").value="";
-    document.getElementById("buyDate").value="";
-    document.getElementById("buyMemo").value="";
-
-    positionForm.style.display="block";
-
-};
-
-document.getElementById("savePositionBtn").onclick=()=>{
-
-    const price=Number(document.getElementById("buyPrice").value);
-
-    const qty=Number(document.getElementById("buyQty").value);
-
-    const date=document.getElementById("buyDate").value;
-
-    const memo=document.getElementById("buyMemo").value;
-
-    if(!price || !qty){
-
-        alert("매수가와 수량을 입력하세요.");
-
-        return;
-
-    }
-
-    const isEdit = editingPositionId !== null;
-    if(editingPositionId===null){
-
-    const position={
-
-    id:Date.now(),
-    number:
-    stocks[selectedIndex].positions.length+1,
-
-    buyPrice:price,
-
-    buyQty:qty,
-
-    remainQty:qty,
-
-    buyDate:date,
-
-    memo:memo,
-
-    status:"OPEN",
-
-    tags:[],
-
-    realizedPnL:0,
-
-    currentPrice:0,
-
-    unrealizedPnL:0,
-
-    unrealizedRate:0,
-
-    trades:[]
-
-};  
-
-    stocks[selectedIndex].positions.push(position);
-
-}else{
-
-    const position=stocks[selectedIndex].positions.find(
-        p=>p.id===editingPositionId
-    );
-
-    position.buyPrice=price;
-    position.buyQty=qty;
-    position.buyDate=date;
-    position.memo=memo;
-    
-
-    if(position.remainQty>qty){
-
-        position.remainQty=qty;
-
-    }
-
-    recalculatePosition(position);
-    updatePositionStatus(position);
-
-    editingPositionId=null;
-
-}
-
-    saveStocks();
-    renderPositions();
-
-    console.log(stocks[selectedIndex].positions);
-
-    alert(
-
-    isEdit
-
-    ?
-
-    "Position 수정 완료"
-
-    :
-
-    "Position 추가 완료"
-
-    );
-
-    editingPositionId = null;
-
-    document.getElementById("buyPrice").value = "";
-    document.getElementById("buyQty").value = "";
-    document.getElementById("buyDate").value = "";
-    document.getElementById("buyMemo").value = "";
-
-    positionForm.style.display="none";
-    
-
-};
-
-document.getElementById("saveTradeBtn").onclick=()=>{
-
-    const price=Number(document.getElementById("sellPrice").value);
-
-    const qty=Number(document.getElementById("sellQty").value);
-
-    if(!price||!qty){
-
-        alert("입력하세요.");
-
-        return;
-
-    }
-
-    const position=editingTrade.position;
-
-    if(qty>position.remainQty){
-
-        alert("보유수량 초과");
-
-        return;
-
-    }
-
-    if(editingTrade.mode==="add"){
-
-    position.trades.push({
-
-        id:Date.now(),
-
-        type:"SELL",
-
-        price,
-
-        qty,
-
-        date:new Date().toISOString()
-
+        name: name.trim() || normalizedSymbol,
+        symbol: normalizedSymbol,
+        memo,
+        currentPrice: null,
+        positions: []
     });
 
-}else{
-
-    editingTrade.trade.price = price;
-    editingTrade.trade.qty = qty;
-
-}
-
-    recalculatePosition(position);
+    selectedIndex = stocks.length - 1;
+    rememberRecentSymbol(normalizedSymbol);
 
     saveStocks();
+    hideStockForm();
+    refreshUI();
+}
 
-    renderPositions();
+function saveStock() {
+    addStockFromData({
+        name: dom.stockName.value.trim(),
+        symbol: dom.stockSymbol.value.trim(),
+        memo: dom.stockMemo.value.trim()
+    });
+}
 
-    document.getElementById("tradeForm").style.display="none";
+async function searchStocks() {
+    const query = dom.stockSearchInput.value.trim();
 
-    editingTrade = null;
+    if (!query) {
+        alert("검색어를 입력해 주세요.");
+        return;
+    }
 
-};
+    dom.stockSearchResults.innerHTML = `<div class="empty-state small">검색 중입니다.</div>`;
 
-document.getElementById("cancelTradeBtn").onclick=()=>{
+    const results = await PriceProvider.searchStocks(query);
 
-    editingTrade=null;
+    if (results.length === 0) {
+        dom.stockSearchResults.innerHTML = `
+            <div class="empty-state small">
+                검색 결과가 없습니다. API 키를 확인하거나 직접 추가를 사용하세요.
+            </div>
+        `;
+        return;
+    }
 
-    document.getElementById("tradeForm").style.display="none";
+    dom.stockSearchResults.innerHTML = results.map(result => `
+        <button
+            class="stock-result"
+            type="button"
+            data-symbol="${escapeHtml(result.symbol)}"
+            data-name="${escapeHtml(result.name)}">
+            <strong>${escapeHtml(result.symbol)}</strong>
+            <span>${escapeHtml(result.name)}</span>
+            <small>${escapeHtml(result.exchange)}</small>
+        </button>
+    `).join("");
+}
 
-};
+function bindEvents() {
+    dom.stockList.addEventListener("click", event => {
+        hideStockContextMenu();
+        const pinButton = event.target.closest(".pin-stock-btn");
+        const item = event.target.closest(".stock-card");
+
+        if (pinButton) {
+            togglePinnedSymbol(pinButton.dataset.symbol);
+            return;
+        }
+
+        if (!item) return;
+
+        const stock = getStockBySymbol(item.dataset.symbol);
+
+        if (!stock) return;
+
+        selectedIndex = stocks.indexOf(stock);
+        rememberRecentSymbol(stock.symbol);
+        hideStockForm();
+        refreshUI();
+        updateCurrentPrice({ silent: true });
+    });
+
+    dom.stockList.addEventListener("contextmenu", event => {
+        const item = event.target.closest(".stock-card");
+
+        if (!item) return;
+
+        event.preventDefault();
+        showStockContextMenu(item.dataset.symbol, event.clientX, event.clientY);
+    });
+
+    dom.deleteStockMenuBtn.addEventListener("click", () => {
+        if (contextMenuSymbol) {
+            deleteStock(contextMenuSymbol);
+        }
+    });
+
+    document.addEventListener("click", event => {
+        if (!event.target.closest(".context-menu")) {
+            hideStockContextMenu();
+        }
+    });
+
+    dom.stockList.addEventListener("dragstart", event => {
+        const row = event.target.closest(".stock-row");
+
+        if (!row) return;
+
+        draggedSymbol = row.dataset.symbol;
+        row.classList.add("dragging");
+    });
+
+    dom.stockList.addEventListener("dragend", event => {
+        event.target.closest(".stock-row")?.classList.remove("dragging");
+        draggedSymbol = null;
+        saveStockOrderFromDom();
+    });
+
+    dom.stockList.addEventListener("dragover", event => {
+        const row = event.target.closest(".stock-row");
+
+        if (!row || !draggedSymbol || row.dataset.symbol === draggedSymbol) return;
+
+        event.preventDefault();
+
+        const draggedRow = dom.stockList.querySelector(`[data-symbol="${draggedSymbol}"]`);
+        const box = row.getBoundingClientRect();
+        const after = event.clientY > box.top + box.height / 2;
+
+        if (after) {
+            row.after(draggedRow);
+        } else {
+            row.before(draggedRow);
+        }
+    });
+
+    dom.positionList.addEventListener("click", event => {
+        const button = event.target.closest("button");
+
+        if (!button) return;
+
+        const positionId = Number(button.dataset.id || button.dataset.positionId);
+        const position = getPositionById(positionId);
+
+        if (button.classList.contains("sellBtn") && position) {
+            openTradeModal(position);
+        }
+
+        if (button.classList.contains("editPositionBtn") && position) {
+            openEditPositionModal(position);
+        }
+
+        if (button.classList.contains("clonePositionBtn") && position) {
+            openClonePositionModal(position);
+        }
+
+        if (button.classList.contains("deletePositionBtn")) {
+            deletePosition(positionId);
+        }
+
+        if (button.classList.contains("editTradeBtn") && position) {
+            openTradeModal(
+                position,
+                getTradeById(position, button.dataset.tradeId)
+            );
+        }
+
+        if (button.classList.contains("deleteTradeBtn")) {
+            deleteTrade(positionId, button.dataset.tradeId);
+        }
+    });
+
+    dom.stockSearchResults.addEventListener("click", event => {
+        const result = event.target.closest(".stock-result");
+
+        if (!result) return;
+
+        addStockFromData({
+            symbol: result.dataset.symbol,
+            name: result.dataset.name
+        });
+    });
+
+    dom.addStockBtn.addEventListener("click", showStockForm);
+    dom.cancelStockBtn.addEventListener("click", hideStockForm);
+    dom.saveStockBtn.addEventListener("click", saveStock);
+    dom.stockFilterInput.addEventListener("input", renderStocks);
+    dom.searchStockBtn.addEventListener("click", searchStocks);
+    dom.stockSearchInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            searchStocks();
+        }
+    });
+
+    dom.updatePriceBtn.addEventListener("click", updateCurrentPrice);
+
+    dom.buyPrice.dataset.manualDot = "false";
+    dom.buyPrice.addEventListener("focus", () => {
+        dom.buyPrice.value = dom.buyPrice.value.replace(/,/g, "");
+    });
+    dom.buyPrice.addEventListener("input", () => normalizePriceInput(dom.buyPrice));
+    dom.buyPrice.addEventListener("keydown", event => handleDecimalKey(event, dom.buyPrice));
+    dom.buyPrice.addEventListener("blur", () => formatInputOnBlur(dom.buyPrice, 2));
+
+    [dom.buyQty, dom.sellPrice, dom.sellQty].forEach(input => {
+        input.addEventListener("focus", () => {
+            input.value = input.value.replace(/,/g, "");
+        });
+        input.addEventListener("input", () => normalizePlainNumberInput(input));
+        input.addEventListener("blur", () => formatInputOnBlur(input, 2));
+    });
+
+    dom.addPositionBtn.addEventListener("click", openAddPositionModal);
+    dom.cancelPositionBtn.addEventListener("click", () => {
+        resetPositionForm();
+        closeModal(dom.positionModal);
+    });
+    dom.savePositionBtn.addEventListener("click", savePosition);
+
+    dom.cancelTradeBtn.addEventListener("click", () => {
+        resetTradeForm();
+        closeModal(dom.tradeModal);
+    });
+    dom.saveTradeBtn.addEventListener("click", saveTrade);
+
+    [dom.stockForm, dom.positionModal, dom.tradeModal].forEach(modal => {
+        modal.addEventListener("click", event => {
+            if (event.target === modal) {
+                if (modal === dom.stockForm) hideStockForm();
+                if (modal === dom.positionModal) resetPositionForm();
+                if (modal === dom.tradeModal) resetTradeForm();
+
+                closeModal(modal);
+            }
+        });
+
+        modal.addEventListener("keydown", event => {
+            if (event.key === "Escape") {
+                if (modal === dom.stockForm) hideStockForm();
+                if (modal === dom.positionModal) resetPositionForm();
+                if (modal === dom.tradeModal) resetTradeForm();
+                closeModal(modal);
+            }
+
+            if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {
+                event.preventDefault();
+
+                if (modal === dom.stockForm && event.target === dom.stockSearchInput) searchStocks();
+                if (
+                    modal === dom.stockForm
+                    && [dom.stockName, dom.stockSymbol].includes(event.target)
+                ) {
+                    if (!moveToNextModalField(modal, event.target)) saveStock();
+                }
+                if (modal === dom.positionModal) {
+                    if (!moveToNextModalField(modal, event.target)) savePosition();
+                }
+                if (modal === dom.tradeModal) {
+                    if (!moveToNextModalField(modal, event.target)) saveTrade();
+                }
+            }
+        });
+    });
+}
+
+bindEvents();
+refreshUI();
+schedulePriceRefresh();

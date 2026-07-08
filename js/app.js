@@ -1,101 +1,63 @@
-
 const frame = document.getElementById("pageFrame");
 const menus = document.querySelectorAll(".menu");
+const appLayout = document.getElementById("appLayout");
+const sidebarToggle = document.getElementById("sidebarToggle");
 
 const pages = {
-    calculator: "pages/calculator.html",
     portfolio: "pages/portfolio.html",
+    calculator: "pages/calculator.html",
     settings: "pages/settings.html"
 };
 
+function applyAppSettings() {
+    const settings = SilverSettings.load();
+
+    SilverSettings.applyTheme(document);
+    appLayout.classList.toggle("sidebar-collapsed", settings.sidebarCollapsed);
+    sidebarToggle.textContent = settings.sidebarCollapsed ? "›" : "‹";
+    sidebarToggle.setAttribute(
+        "aria-label",
+        settings.sidebarCollapsed ? "좌측 메뉴 펼치기" : "좌측 메뉴 접기"
+    );
+
+    try {
+        if (frame?.contentDocument) {
+            SilverSettings.applyTheme(frame.contentDocument);
+        }
+    } catch (error) {
+        console.warn("화면 설정 적용을 건너뛰었습니다.", error);
+    }
+}
+
 menus.forEach(menu => {
-
     menu.addEventListener("click", () => {
-
-        // active 제거
-        menus.forEach(m => m.classList.remove("active"));
-
-        // 현재 버튼 활성화
-        menu.classList.add("active");
-
-        // 페이지 변경
         const page = menu.dataset.page;
 
+        if (!frame || !pages[page]) return;
+
+        menus.forEach(item => item.classList.remove("active"));
+        menu.classList.add("active");
+
         frame.src = pages[page];
-
     });
-
 });
 
-function renderStocks() {
+sidebarToggle.addEventListener("click", () => {
+    const settings = SilverSettings.load();
 
-    stockList.innerHTML = "";
-
-    stocks.forEach((stock, index) => {
-
-        const div = document.createElement("div");
-
-        div.className = "stock-item";
-
-        if (index === selectedIndex) {
-            div.classList.add("active");
-        }
-
-        div.textContent = stock.symbol;
-
-        div.onclick = () => {
-
-            selectedIndex = index;
-
-            renderStocks();
-
-            stockTitle.textContent = stock.symbol;
-
-            stockInfo.textContent = stock.name;
-            renderPositions();
-
-            stockForm.style.display = "none";
-        };
-
-        stockList.appendChild(div);
-
+    SilverSettings.update({
+        sidebarCollapsed: !settings.sidebarCollapsed
     });
 
-}
+    applyAppSettings();
+});
 
-function renderPositions(){
-
-    const positionList=document.getElementById("positionList");
-    positionList.innerHTML="";
-
-    const positions=stocks[selectedIndex].positions;
-
-    const openPositions =
-    positions.filter(p=>p.status==="OPEN");
-
-    const partialPositions =
-    positions.filter(p=>p.status==="PARTIAL");
-
-    const closedPositions =
-    positions.filter(p=>p.status==="CLOSED");
-
-    if(positions.length===0){
-
-        positionList.innerHTML="아직 Position이 없습니다.";
-
-        return;
-
+frame.addEventListener("load", applyAppSettings);
+window.addEventListener("silver-settings-changed", applyAppSettings);
+window.addEventListener("message", event => {
+    if (event.data?.type === "silver-settings-updated") {
+        applyAppSettings();
     }
+});
 
-    
-
-
-    renderPositionGroup("🟢 OPEN", openPositions);
-    renderPositionGroup("🟡 PARTIAL", partialPositions);
-    renderPositionGroup("⚫ CLOSED", closedPositions);
-    
-
-    bindPositionEvents();
-    renderDashboard();
-
-}
+applyAppSettings();

@@ -1,357 +1,189 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" class="fixed-page">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Portfolio</title>
-
-<style>
-*{
-    margin:0;
-    padding:0;
-    box-sizing:border-box;
-    font-family:Arial,sans-serif;
-}
-
-body{
-    background:#f5f6fa;
-    height:100vh;
-}
-
-.layout{
-    display:grid;
-    grid-template-columns:280px 1fr;
-    height:100vh;
-}
-
-.sidebar{
-    background:#fff;
-    border-right:1px solid #ddd;
-    display:flex;
-    flex-direction:column;
-}
-
-.header{
-    padding:20px;
-    border-bottom:1px solid #eee;
-}
-
-.header h2{
-    margin-bottom:15px;
-}
-
-#addStockBtn{
-    width:100%;
-    padding:12px;
-    background:#2563eb;
-    color:#fff;
-    border:none;
-    border-radius:8px;
-    cursor:pointer;
-}
-
-.stock-list{
-    flex:1;
-    overflow:auto;
-}
-
-.stock-item{
-    padding:15px 20px;
-    border-bottom:1px solid #eee;
-    cursor:pointer;
-    transition:.2s;
-}
-
-.stock-item:hover{
-    background:#f3f4f6;
-}
-
-.stock-item.active{
-    background:#dbeafe;
-    font-weight:bold;
-}
-
-.content{
-    padding:40px;
-}
-
-#stockTitle{
-    font-size:30px;
-    margin-bottom:10px;
-}
-
-#stockInfo{
-    color:#666;
-    margin-bottom:30px;
-}
-
-#stockForm{
-    display:none;
-    max-width:500px;
-    background:#fff;
-    border:1px solid #ddd;
-    border-radius:10px;
-    padding:25px;
-}
-
-#stockForm h3{
-    margin-bottom:20px;
-}
-
-.form-group{
-    margin-bottom:18px;
-}
-
-.form-group label{
-    display:block;
-    margin-bottom:6px;
-    font-weight:bold;
-}
-
-.form-group input,
-.form-group textarea{
-    width:100%;
-    padding:10px;
-    border:1px solid #ccc;
-    border-radius:6px;
-}
-
-textarea{
-    resize:vertical;
-}
-
-#saveStockBtn{
-    background:#2563eb;
-    color:white;
-    border:none;
-    padding:12px 18px;
-    border-radius:8px;
-    cursor:pointer;
-}
-#addPositionBtn{
-
-    padding:10px 18px;
-
-    background:#16a34a;
-
-    color:white;
-
-    border:none;
-
-    border-radius:8px;
-
-    cursor:pointer;
-
-}
-
-.position-card{
-
-    background:white;
-
-    border:1px solid #ddd;
-
-    border-radius:10px;
-
-    padding:15px;
-
-    margin-bottom:15px;
-
-}
-
-.position-title{
-
-    font-size:18px;
-
-    font-weight:bold;
-
-    margin-bottom:8px;
-
-}
-</style>
-
+<title>포트폴리오</title>
+<link rel="stylesheet" href="../css/style.css">
 </head>
 
-<body>
+<body class="page-body portfolio-body">
 
-<div class="layout">
+<div class="layout portfolio-layout">
 
-    <aside class="sidebar">
+    <aside class="sidebar portfolio-sidebar">
 
         <div class="header">
+            <h2>포트폴리오</h2>
 
-            <h2>📈 Portfolio</h2>
-
-            <button id="addStockBtn">
-                + 새 종목
+            <button id="addStockBtn" class="sidebar-action">
+                + 종목 추가
             </button>
-
         </div>
 
-        <div class="stock-list" id="stockList">
-
-            <div class="stock-item active">
-                PAAS
-            </div>
-
-            <div class="stock-item">
-                AG
-            </div>
-
+        <div class="stock-filter">
+            <label for="stockFilterInput">종목 필터</label>
+            <input id="stockFilterInput" type="text" placeholder="보유 종목 검색">
         </div>
+
+        <div class="stock-list" id="stockList"></div>
 
     </aside>
 
-    <main class="content">
+    <main class="content portfolio-content">
 
-        <h1 id="stockTitle">PAAS</h1>
-
-        <div id="stockInfo">
-            종목을 선택했습니다.
-        </div>
-        <div id="dashboard" class="dashboard">
-
-        <div class="dash-card">
-            <div>총 투자금</div>
-            <strong id="totalBuy">$0.00</strong>
-        </div>
-
-        <div class="dash-card">
-            <div>평가금액</div>
-            <strong id="totalValue">$0.00</strong>
-        </div>
-
-        <div class="dash-card">
-            <div>실현손익</div>
-            <strong id="realizedPnL">$0.00</strong>
-        </div>
-
-        <div class="dash-card">
-            <div>미실현손익</div>
-            <strong id="unrealizedPnL">$0.00</strong>
-        </div>
-
-        <div class="dash-card">
-            <div>총 수익률</div>
-            <strong id="totalRate">0.00%</strong>
-        </div>
-
-    </div>
-
-        <hr style="margin:25px 0;">
-
-<div id="positionSection">
-
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
-
-        <h2>🟢 OPEN Position</h2>
-
-        <button id="addPositionBtn">
-            + Position
-        </button>
-
-    </div>
-
-    <div id="positionList">
-
-    아직 Position이 없습니다.
-
-</div>
-
-<div id="positionForm" style="display:none; margin-top:25px;">
-
-    <h3>새 Position</h3>
-
-    <br>
-
-    <label>매수가</label><br>
-    <input id="buyPrice" type="number">
-
-    <br><br>
-
-    <label>수량</label><br>
-    <input id="buyQty" type="number">
-
-    <br><br>
-
-    <label>날짜</label><br>
-    <input id="buyDate" type="date">
-
-    <br><br>
-
-    <label>메모</label><br>
-    <textarea id="buyMemo"></textarea>
-
-    <br><br>
-
-    <button id="savePositionBtn">
-
-        저장
-
-    </button>
-
-</div>
-
-<div id="tradeForm" style="display:none;margin-top:20px;">
-
-    <h3>Trade</h3>
-
-    <label>매도가</label><br>
-    <input id="sellPrice" type="number" step="0.01">
-
-    <br><br>
-
-    <label>매도수량</label><br>
-    <input id="sellQty" type="number">
-
-    <br><br>
-
-    <button id="saveTradeBtn">
-
-        저장
-
-    </button>
-
-    <button id="cancelTradeBtn">
-
-        취소
-
-    </button>
-
-</div>
-
-</div>
-
-        <div id="stockForm">
-
-            <h3>새 종목 추가</h3>
-
-            <div class="form-group">
-                <label>종목명</label>
-                <input id="stockName" type="text">
+        <section class="portfolio-header">
+            <div>
+                <p class="eyebrow">선택 종목</p>
+                <h1 id="stockTitle">PAAS</h1>
+                <p id="stockDescription">종목을 선택해 주세요.</p>
             </div>
 
-            <div class="form-group">
-                <label>심볼</label>
-                <input id="stockSymbol" type="text">
+            <div class="price-panel">
+                <div>
+                    <label>현재가</label>
+                    <strong id="currentPriceText">$0.00</strong>
+                    <p id="averagePriceText">평단가: $0</p>
+                    <p id="priceUpdatedAt">최근 갱신: 없음</p>
+                    <p id="priceApiStatus" class="api-status status-wait">상태 확인 중</p>
+                </div>
+                <button id="updatePriceBtn" class="btn-primary visually-hidden" type="button">현재가 새로고침</button>
+                <input id="currentPrice" type="number" step="0.01" class="visually-hidden" aria-hidden="true">
+            </div>
+        </section>
+
+        <section id="dashboard" class="dashboard">
+            <div class="dash-card">
+                <div>총 투자금</div>
+                <strong id="totalBuy">$0.00</strong>
             </div>
 
-            <div class="form-group">
-                <label>메모</label>
-                <textarea id="stockMemo" rows="4"></textarea>
+            <div class="dash-card">
+                <div>총 평가금</div>
+                <strong id="totalValue">$0.00</strong>
             </div>
 
-            
+            <div class="dash-card">
+                <div>실현손익</div>
+                <strong id="realizedPnL">$0.00</strong>
+            </div>
 
-            <button id="saveStockBtn">
-                저장
-            </button>
+            <div class="dash-card">
+                <div>미실현손익</div>
+                <strong id="unrealizedPnL">$0.00</strong>
+            </div>
 
-        </div>
+            <div class="dash-card">
+                <div>총 수익률</div>
+                <strong id="totalRate">0.00%</strong>
+            </div>
+        </section>
+
+        <section id="positionSection">
+            <div class="section-title-row">
+                <h2>포지션</h2>
+                <button id="addPositionBtn" class="btn-primary" type="button">+ 포지션</button>
+            </div>
+
+            <div id="positionList" class="position-list">
+                아직 포지션이 없습니다.
+            </div>
+        </section>
 
     </main>
 
 </div>
 
+<div id="stockContextMenu" class="context-menu" hidden>
+    <button id="deleteStockMenuBtn" type="button">삭제</button>
+</div>
+
+<div id="stockForm" class="modal" aria-hidden="true">
+    <div class="modal-content stock-modal-content">
+        <h2>종목 추가</h2>
+
+        <div class="form-row">
+            <label for="stockSearchInput">종목 검색</label>
+            <div class="stock-search-row modal-search-row">
+                <input id="stockSearchInput" type="text" placeholder="예: QQQ, TSLA, PAAS">
+                <button id="searchStockBtn" class="btn-primary" type="button">검색</button>
+            </div>
+        </div>
+
+        <div id="stockSearchResults" class="stock-search-results modal-search-results"></div>
+
+        <div class="manual-stock-fields">
+            <p>검색 결과가 부족하면 직접 추가할 수 있습니다.</p>
+            <input id="stockName" type="text" placeholder="종목명">
+            <input id="stockSymbol" type="text" placeholder="심볼">
+            <textarea id="stockMemo" rows="3" placeholder="메모"></textarea>
+            <div class="button-row compact">
+                <button id="cancelStockBtn" class="btn-secondary" type="button">취소</button>
+                <button id="saveStockBtn" class="btn-primary" type="button">직접 추가</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="positionModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+        <h2 id="positionModalTitle">포지션 추가</h2>
+
+        <div class="form-row">
+            <label for="buyPrice">매수가</label>
+            <input id="buyPrice" type="text" inputmode="decimal">
+        </div>
+
+        <div class="form-row">
+            <label for="buyQty">수량</label>
+            <input id="buyQty" type="text" inputmode="decimal">
+        </div>
+
+        <div class="form-row">
+            <label for="buyDate">매수일</label>
+            <input id="buyDate" type="date">
+        </div>
+
+        <div class="form-row">
+            <label for="buyMemo">메모</label>
+            <textarea id="buyMemo" rows="4"></textarea>
+        </div>
+
+        <div class="button-row">
+            <button id="cancelPositionBtn" class="btn-secondary" type="button">취소</button>
+            <button id="savePositionBtn" class="btn-primary" type="button">저장</button>
+        </div>
+    </div>
+</div>
+
+<div id="tradeModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+        <h2 id="tradeModalTitle">부분매도</h2>
+
+        <div class="form-row">
+            <label for="sellPrice">매도가</label>
+            <input id="sellPrice" type="text" inputmode="decimal">
+        </div>
+
+        <div class="form-row">
+            <label for="sellQty">매도수량</label>
+            <input id="sellQty" type="text" inputmode="decimal">
+        </div>
+
+        <div class="button-row">
+            <button id="cancelTradeBtn" class="btn-secondary" type="button">취소</button>
+            <button id="saveTradeBtn" class="btn-primary" type="button">저장</button>
+        </div>
+    </div>
+</div>
+
+<script src="../js/appConfig.js"></script>
+<script src="../js/settingsStore.js"></script>
+<script src="../js/uiFeedback.js"></script>
+<script src="../js/storage.js"></script>
+<script src="../js/dashboard.js"></script>
+<script src="../js/priceProvider.js"></script>
+<script src="../js/positionService.js"></script>
 <script src="../js/portfolio.js"></script>
 </body>
 </html>

@@ -11,54 +11,57 @@
 
 <body>
 
-<div class="layout">
+<div class="layout" id="appLayout">
 
-    <aside class="sidebar">
+    <aside class="sidebar app-sidebar" id="appSidebar">
 
         <div class="logo">
-            📈
-            <div>
-                <h2>Silver Strategy</h2>
-                <span>Manager</span>
+            <span class="logo-mark">SS</span>
+            <div class="logo-text">
+                <h2>실버 전략</h2>
+                <span>매니저</span>
             </div>
         </div>
 
+        <button
+            id="sidebarToggle"
+            class="sidebar-toggle"
+            type="button"
+            aria-label="좌측 메뉴 접기">
+            ‹
+        </button>
+
         <nav>
-
-            <button class="menu active"
-                    data-page="calculator">
-                🎯
-                Calculator
+            <button class="menu active" data-page="portfolio">
+                <span class="menu-icon">▦</span>
+                <span class="menu-label">포트폴리오</span>
             </button>
 
-            <button class="menu"
-                    data-page="portfolio">
-                💼
-                Portfolio
+            <button class="menu" data-page="calculator">
+                <span class="menu-icon">∑</span>
+                <span class="menu-label">계산기</span>
             </button>
 
-            <button class="menu"
-                    data-page="settings">
-                ⚙
-                Settings
+            <button class="menu" data-page="settings">
+                <span class="menu-icon">⚙</span>
+                <span class="menu-label">설정</span>
             </button>
-
         </nav>
 
     </aside>
 
-    <main class="content">
-
+    <main class="content app-content">
         <iframe
             id="pageFrame"
-            src="pages/calculator.html"
-            frameborder="0">
+            src="pages/portfolio.html"
+            title="실버 전략 매니저 화면">
         </iframe>
-
     </main>
 
 </div>
 
+<script src="js/appConfig.js"></script>
+<script src="js/settingsStore.js"></script>
 <script src="js/app.js"></script>
 
 </body>

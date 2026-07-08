@@ -1,15 +1,65 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" class="scroll-page">
 <head>
 <meta charset="UTF-8">
-<title>Settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>설정</title>
+<link rel="stylesheet" href="../css/style.css">
 </head>
 
-<body>
+<body class="page-body settings-body">
+<main class="content page-content">
+    <section class="settings-hero">
+        <div>
+            <h1>설정</h1>
+            <p>화면 보기 방식과 현재가 API 설정을 관리합니다.</p>
+        </div>
+    </section>
 
-<h1 style="padding:40px;">
-⚙ Settings 개발중...
-</h1>
+    <section class="settings-grid">
+        <article class="panel settings-card">
+            <div>
+                <h2>화면 설정</h2>
+                <p>저장 후 전체 화면에 적용됩니다.</p>
+            </div>
 
+            <label class="switch-row" for="darkModeToggle">
+                <span>
+                    <strong>다크모드</strong>
+                    <small>눈부심을 줄이는 어두운 화면</small>
+                </span>
+                <input id="darkModeToggle" type="checkbox">
+            </label>
+        </article>
+
+        <article class="panel settings-card">
+            <div>
+                <h2>현재가 자동 갱신</h2>
+                <p>설정한 주기에 따라 현재가를 자동으로 갱신합니다.</p>
+            </div>
+
+            <div class="form-group">
+                <label for="apiRefreshInterval">자동 갱신 주기</label>
+                <select id="apiRefreshInterval" class="select-input">
+                    <option value="1">1분</option>
+                    <option value="5">5분</option>
+                    <option value="10">10분</option>
+                    <option value="30">30분</option>
+                    <option value="60">1시간</option>
+                </select>
+            </div>
+        </article>
+    </section>
+
+    <div class="settings-actions">
+        <button id="saveSettingsBtn" class="btn-primary" type="button">설정 저장</button>
+        <span id="settingsSavedText" class="save-state" aria-live="polite"></span>
+    </div>
+</main>
+
+<script src="../js/appConfig.js"></script>
+<script src="../js/settingsStore.js"></script>
+<script src="../js/uiFeedback.js"></script>
+<script src="../js/settings.js"></script>
 </body>
 </html>
